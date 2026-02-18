@@ -1,0 +1,84 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@layer base {
+  body {
+    @apply bg-white text-fg font-sans antialiased;
+    font-size: 16px;
+    line-height: 1.5;
+  }
+
+  * {
+    @apply border-border;
+  }
+
+  input[type="number"]::-webkit-inner-spin-button,
+  input[type="number"]::-webkit-outer-spin-button {
+    -webkit-appearance: none;
+    margin: 0;
+  }
+  input[type="number"] {
+    -moz-appearance: textfield;
+  }
+}
+
+@layer components {
+  .card {
+    @apply border rounded-lg p-5 bg-white;
+  }
+
+  .btn-primary {
+    @apply w-full py-3 bg-fg text-white font-semibold text-sm rounded-full
+           hover:opacity-80
+           disabled:bg-border disabled:text-muted disabled:cursor-not-allowed
+           transition-opacity duration-150;
+  }
+
+  .btn-secondary {
+    @apply py-3 px-6 border rounded-full font-semibold text-sm text-fg
+           hover:bg-surface-alt
+           transition-colors duration-150;
+  }
+
+  .btn-danger {
+    @apply py-3 px-6 border border-fg/20 rounded-full font-semibold text-sm
+           text-fg hover:bg-surface-alt
+           transition-colors duration-150;
+  }
+
+  .input-field {
+    @apply w-full px-4 py-3 bg-white border rounded-lg
+           text-fg text-base font-mono placeholder-muted
+           focus:outline-none focus:border-fg
+           transition-colors duration-150;
+  }
+
+  .info-card {
+    @apply p-4 rounded-lg border bg-white;
+  }
+
+  .stat-value {
+    @apply text-2xl font-bold font-mono tracking-tight text-fg;
+  }
+  .stat-label {
+    @apply text-xs font-medium text-muted uppercase tracking-wider;
+  }
+
+  .pill {
+    @apply py-2.5 rounded-full border font-semibold text-sm text-center cursor-pointer
+           transition-colors duration-150;
+  }
+  .pill-active {
+    @apply pill border-fg bg-fg text-white;
+  }
+  .pill-inactive {
+    @apply pill border-border text-muted
+           hover:border-border-dark hover:text-fg;
+  }
+
+  .badge {
+    @apply inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full
+           text-xs font-semibold border;
+  }
+}

@@ -1,0 +1,40 @@
+{
+  "name": "hoodgap-protocol",
+  "version": "1.0.0",
+  "description": "Insurance Protocol",
+  "main": "index.js",
+  "scripts": {
+    "test": "hardhat test",
+    "compile": "hardhat compile",
+    "deploy:local": "hardhat run scripts/deploy.js --network localhost",
+    "deploy:testnet": "hardhat run scripts/deploy.js --network robinhoodTestnet",
+    "seed": "hardhat run scripts/seed-liquidity.js --network localhost",
+    "seed:testnet": "hardhat run scripts/seed-liquidity.js --network robinhoodTestnet",
+    "demo": "hardhat run scripts/demo-lifecycle.js --network localhost",
+    "demo:split": "hardhat run scripts/demo-split.js --network localhost",
+    "simulate": "hardhat run scripts/simulate-weekend.js --network localhost",
+    "verify:testnet": "hardhat run scripts/verify.js --network robinhoodTestnet",
+    "guardian": "hardhat run scripts/guardian-operations.js --network localhost",
+    "node": "hardhat node",
+    "clean": "hardhat clean"
+  },
+  "keywords": [
+    "defi",
+    "insurance",
+    "hardhat",
+    "solidity"
+  ],
+  "author": "Devbyte",
+  "license": "MIT",
+  "devDependencies": {
+    "@nomicfoundation/hardhat-chai-matchers": "^2.1.0",
+    "@nomicfoundation/hardhat-toolbox": "^5.0.0",
+    "dotenv": "^16.4.5",
+    "hardhat": "^2.22.17",
+    "solhint": "^6.0.3"
+  },
+  "dependencies": {
+    "@chainlink/contracts": "^1.5.0",
+    "@openzeppelin/contracts": "^5.0.2"
+  }
+}
