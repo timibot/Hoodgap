@@ -13,7 +13,7 @@ import FaucetButton from "@/components/wallet/FaucetButton";
 
 const TradingViewChart = dynamic(
   () => import("@/components/shared/TradingViewChart"),
-  { ssr: false, loading: () => <div style={{ height: 1500 }} className="border rounded-lg animate-pulse bg-surface-alt" /> }
+  { ssr: false, loading: () => <div style={{ height: 400 }} className="border rounded-lg animate-pulse bg-surface-alt" /> }
 );
 
 const STOCKS: Record<string, { name: string; ticker: string; symbol: string }> = {
@@ -62,7 +62,7 @@ export default function StockPage() {
     <div className="space-y-6">
       {/* Stock Header */}
       <div className="border rounded-lg p-5">
-        <div className="flex items-center justify-between">
+        <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
           <div className="flex items-center gap-3">
             <button onClick={() => router.push("/")} className="text-muted hover:text-fg text-sm">←</button>
             <div className="w-10 h-10 rounded-full bg-black flex items-center justify-center">
@@ -75,8 +75,8 @@ export default function StockPage() {
               <div className="text-xs text-muted uppercase">STOCK</div>
             </div>
           </div>
-          <div className="flex items-center gap-8">
-            <div className="text-right">
+          <div className="grid grid-cols-3 gap-4 sm:flex sm:items-center sm:gap-8">
+            <div className="text-left sm:text-right">
               <div className="text-xl font-bold font-mono">
                 {quote.loading ? "..." : `$${quote.price.toFixed(2)}`}
               </div>
@@ -84,13 +84,13 @@ export default function StockPage() {
                 {quote.loading ? "..." : `${isPositive ? "+" : ""}${quote.change.toFixed(2)}%`}
               </span>
             </div>
-            <div className="text-right">
+            <div className="text-left sm:text-right">
               <div className="text-xs text-muted">Market Cap</div>
-              <div className="font-semibold font-mono">{quote.loading ? "..." : quote.marketCap}</div>
+              <div className="font-semibold font-mono text-sm sm:text-base">{quote.loading ? "..." : quote.marketCap}</div>
             </div>
-            <div className="text-right">
+            <div className="text-left sm:text-right">
               <div className="text-xs text-muted">Pool Liquidity</div>
-              <div className="font-semibold font-mono">{liquidity}</div>
+              <div className="font-semibold font-mono text-sm sm:text-base">{liquidity}</div>
             </div>
           </div>
         </div>
@@ -99,8 +99,8 @@ export default function StockPage() {
       {/* Main Content: Chart + Sidebar */}
       <div className="grid grid-cols-1 lg:grid-cols-[1fr_280px] gap-6 items-start">
         {/* Chart */}
-        <div style={{ minHeight: 1500 }}>
-          <TradingViewChart symbol={stock.symbol} height={1500} />
+        <div>
+          <TradingViewChart symbol={stock.symbol} height={400} />
         </div>
 
         {/* Sidebar */}

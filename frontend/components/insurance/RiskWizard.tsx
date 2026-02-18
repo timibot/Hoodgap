@@ -19,14 +19,15 @@ interface RiskWizardProps {
 }
 
 export default function RiskWizard({ onSuccess }: RiskWizardProps) {
-  const [position, setPosition] = useState(10000);
+  const [position, setPosition] = useState<number | "">(""  );
   const [threshold, setThreshold] = useState(5);
   const [customCoverageMode, setCustomCoverageMode] = useState(false);
   const [customCoverage, setCustomCoverage] = useState(500);
   const [confirmNextWeek, setConfirmNextWeek] = useState(false);
   const [purchasing, setPurchasing] = useState(false);
 
-  const calculatedRisk = calculateRisk(position, threshold);
+  const numPosition = typeof position === "number" ? position : 0;
+  const calculatedRisk = calculateRisk(numPosition, threshold);
   const effectiveCoverage = customCoverageMode ? customCoverage : calculatedRisk;
 
   const { status } = useWeb3();
@@ -35,7 +36,7 @@ export default function RiskWizard({ onSuccess }: RiskWizardProps) {
   const timeline = useSettlementTimeline();
   const premium = usePremium(effectiveCoverage);
 
-  const positionValid = validatePosition(position);
+  const positionValid = validatePosition(numPosition);
   const coverageValid = validateCoverage(effectiveCoverage);
   const canPurchase =
     isReady &&
@@ -122,9 +123,12 @@ export default function RiskWizard({ onSuccess }: RiskWizardProps) {
           <input
             type="number"
             value={position}
-            onChange={(e) => setPosition(Number(e.target.value))}
+            onChange={(e) => {
+              const val = e.target.value;
+              setPosition(val === "" ? "" : Number(val));
+            }}
             className="input-field pl-7"
-            placeholder="10000"
+            placeholder="Enter your position value"
           />
         </div>
         {!positionValid.valid && (
@@ -155,7 +159,7 @@ export default function RiskWizard({ onSuccess }: RiskWizardProps) {
           {formatDollars(calculatedRisk)}
         </div>
         <div className="text-xs text-muted">
-          -{threshold}% of {formatDollars(position)}
+          -{threshold}% of {formatDollars(numPosition)}
         </div>
       </div>
 
@@ -172,7 +176,7 @@ export default function RiskWizard({ onSuccess }: RiskWizardProps) {
               ${premium.amount.toFixed(2)}
             </div>
             <div className="text-xs text-muted">
-              {premiumPercent(premium.amount, position).toFixed(2)}% of position
+              {premiumPercent(premium.amount, effectiveCoverage).toFixed(2)}% of coverage (10% base rate · utilization adjusted)
             </div>
           </>
         ) : null}
