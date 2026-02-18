@@ -195,6 +195,40 @@ npx hardhat test test/unit/PremiumCalculation.test.js
 
 See [docs/SECURITY.md](docs/SECURITY.md) for full threat model.
 
+## Roadmap
+
+### V1 (Current) — TSLA Single-Asset
+
+The current deployment supports Tesla (TSLA) gap insurance with a single pool and oracle feed. All core mechanics are live: premium pricing, policy issuance, settlement, staking, and guardian operations.
+
+### V2 — Multi-Asset Expansion
+
+The architecture is designed for multi-stock support via the **Factory pattern** — each equity gets its own independent HoodGap pool:
+
+```
+HoodGapFactory (deploy once)
+    │
+    ├── factory.createPool("TSLA", tslaPriceFeed)  → Pool #1  ✅ Live
+    ├── factory.createPool("AAPL", aaplPriceFeed)  → Pool #2  🔜
+    ├── factory.createPool("AMZN", amznPriceFeed)  → Pool #3  🔜
+    └── factory.createPool("NVDA", nvdaPriceFeed)  → Pool #4  🔜
+```
+
+Each stock pool is fully independent with its own:
+- Chainlink price oracle
+- USDC liquidity pool and stakers
+- Policy NFTs and settlement cycle
+- Guardian approvals
+
+**No changes to `HoodGap.sol` are needed** — V2 simply deploys new instances per equity, following the same pattern used by protocols like Uniswap (one contract per pair).
+
+### V3 — Future Enhancements
+
+- **Cross-pool staking** — stake once, earn from multiple pools
+- **Dynamic volatility feeds** — on-chain implied volatility oracles
+- **Governance** — decentralized guardian election via token voting
+- **Options-style products** — directional gap bets (bull/bear)
+
 ## License
 
 MIT
