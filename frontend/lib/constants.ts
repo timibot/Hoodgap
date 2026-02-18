@@ -25,7 +25,7 @@ export const CHAIN_CONFIG = {
 
 // Full chain params for wallet_addEthereumChain
 export const ROBINHOOD_TESTNET_PARAMS = {
-  chainId: "0xB636", // 46630
+  chainId: "0xB626", // 46630
   chainName: "Robinhood Testnet",
   nativeCurrency: { name: "Ethereum", symbol: "ETH", decimals: 18 },
   rpcUrls: ["https://rpc.testnet.chain.robinhood.com"],
