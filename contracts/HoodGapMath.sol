@@ -39,7 +39,8 @@ library HoodGapMath {
         return (diff * 10000) / priceB;
     }
 
-    /// @notice Utilization multiplier: 1 + U² (quadratic curve)
+    /// @notice Utilization multiplier: 1 + 0.5U + 0.5U² (linear-quadratic blend)
+    /// @dev Gentler ramp than pure quadratic — keeps premiums reasonable at moderate utilization
     /// @return multiplier In basis points (10000 = 1.0x)
     function getUtilizationMultiplier(
         uint256 totalCoverage,
@@ -51,8 +52,9 @@ library HoodGapMath {
         uint256 utilization = ((totalCoverage + newCoverage) * 10000) / totalStaked;
         if (utilization > 9500) utilization = 9500;
 
-        uint256 utilizationSquared = (utilization * utilization) / 10000;
-        return 10000 + utilizationSquared;
+        uint256 linearPart = utilization / 2; // 0.5U
+        uint256 quadraticPart = (utilization * utilization) / 20000; // 0.5U²
+        return 10000 + linearPart + quadraticPart;
     }
 
     /// @notice Volatility multiplier: σ_current / σ_average
@@ -83,5 +85,14 @@ library HoodGapMath {
         uint256 multiplier = 10000 + (hoursSinceClose * 150);
 
         return multiplier > 25000 ? 25000 : multiplier;
+    }
+
+    /// @notice Calculate binary payout: full coverage if gap >= threshold, else 0
+    /// @param coverage Full coverage amount (USDC, 6 decimals)
+    /// @param gap Actual gap in basis points
+    /// @param threshold Policy threshold in basis points
+    /// @return payout Amount to pay out (USDC, 6 decimals)
+    function calculatePayout(uint256 coverage, uint256 gap, uint256 threshold) internal pure returns (uint256) {
+        return gap >= threshold ? coverage : 0;
     }
 }

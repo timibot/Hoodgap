@@ -13,6 +13,7 @@ import { THRESHOLD_OPTIONS, MAX_POLICY_COVERAGE } from "@/lib/constants";
 import { showToast, updateToast } from "@/components/shared/TransactionToast";
 import { parseTransactionError } from "@/lib/errors";
 import LoadingSpinner from "@/components/shared/LoadingSpinner";
+import PlanSelector, { PlanType, getPlanWeeks, getPlanDiscount } from "@/components/insurance/PlanSelector";
 
 interface RiskWizardProps {
   onSuccess?: (policyId: number) => void;
@@ -25,6 +26,7 @@ export default function RiskWizard({ onSuccess }: RiskWizardProps) {
   const [customCoverage, setCustomCoverage] = useState(500);
   const [confirmNextWeek, setConfirmNextWeek] = useState(false);
   const [purchasing, setPurchasing] = useState(false);
+  const [plan, setPlan] = useState<PlanType>("weekly");
 
   const numPosition = typeof position === "number" ? position : 0;
   const calculatedRisk = calculateRisk(numPosition, threshold);
@@ -35,6 +37,16 @@ export default function RiskWizard({ onSuccess }: RiskWizardProps) {
   const { ensureApproval, approving, approvalMode } = useApproval();
   const timeline = useSettlementTimeline();
   const premium = usePremium(effectiveCoverage);
+
+  const planWeeks = getPlanWeeks(plan);
+  const planDiscount = getPlanDiscount(plan);
+  const discountedPremium = premium.amount !== null && planDiscount > 0
+    ? premium.amount * (1 - planDiscount / 100)
+    : premium.amount;
+  const totalPremium = discountedPremium !== null ? discountedPremium * planWeeks : null;
+  const totalPremiumWei = premium.amountWei && planWeeks > 1
+    ? (premium.amountWei - (premium.amountWei * BigInt(planDiscount * 100)) / 1000000n) * BigInt(planWeeks)
+    : premium.amountWei;
 
   const positionValid = validatePosition(numPosition);
   const coverageValid = validateCoverage(effectiveCoverage);
@@ -58,7 +70,8 @@ export default function RiskWizard({ onSuccess }: RiskWizardProps) {
     });
 
     try {
-      await ensureApproval(premium.amountWei);
+      const approvalAmount = plan === "weekly" ? premium.amountWei! : totalPremiumWei!;
+      await ensureApproval(approvalAmount);
       updateToast(toastId, { message: "Fetching fresh quote..." });
 
       const coverageWei = toUSDC(effectiveCoverage);
@@ -77,21 +90,40 @@ export default function RiskWizard({ onSuccess }: RiskWizardProps) {
       }
 
       updateToast(toastId, { message: "Confirm in wallet..." });
-      const tx = await hoodgap.buyPolicy(coverageWei, toBPS(threshold));
+
+      let tx;
+      if (plan === "weekly") {
+        tx = await hoodgap.buyPolicy(coverageWei, toBPS(threshold));
+      } else {
+        tx = await hoodgap.buySubscription(coverageWei, toBPS(threshold), planWeeks);
+      }
       updateToast(toastId, { message: "Confirming...", txHash: tx.hash });
 
       const receipt = await tx.wait();
-      const event = receipt.logs.find((log: any) => log.fragment?.name === "PolicyPurchased");
-      const policyId = event ? Number(event.args?.policyId) : -1;
+      const iface = hoodgap.interface;
+      const parsed = receipt.logs
+        .map((l: any) => { try { return iface.parseLog(l); } catch { return null; } })
+        .find((e: any) => e && (e.name === "PolicyPurchased" || e.name === "SubscriptionCreated"));
 
-      updateToast(toastId, {
-        type: "success",
-        title: "Policy purchased",
-        message: `#${policyId} — ${formatDollars(effectiveCoverage)} coverage`,
-        txHash: tx.hash,
-      });
-
-      onSuccess?.(policyId);
+      if (plan === "weekly") {
+        const policyId = parsed ? Number(parsed.args?.policyId) : -1;
+        updateToast(toastId, {
+          type: "success",
+          title: "Policy purchased",
+          message: `#${policyId} — ${formatDollars(effectiveCoverage)} coverage`,
+          txHash: tx.hash,
+        });
+        onSuccess?.(policyId);
+      } else {
+        const subId = parsed ? Number(parsed.args?.subId) : -1;
+        updateToast(toastId, {
+          type: "success",
+          title: `${plan === "monthly" ? "Monthly" : "Season"} plan purchased`,
+          message: `Subscription #${subId} — ${planWeeks} weeks of ${formatDollars(effectiveCoverage)} coverage`,
+          txHash: tx.hash,
+        });
+        onSuccess?.(subId);
+      }
     } catch (err: any) {
       updateToast(toastId, {
         type: "error",
@@ -114,6 +146,13 @@ export default function RiskWizard({ onSuccess }: RiskWizardProps) {
           <div className="text-muted text-xs mt-1">{timeline.displayLabel}</div>
         </div>
       )}
+
+      {/* Plan Selector */}
+      <PlanSelector
+        weeklyPremium={premium.amount}
+        selectedPlan={plan}
+        onPlanChange={setPlan}
+      />
 
       {/* Position */}
       <div className="space-y-2">
@@ -163,6 +202,20 @@ export default function RiskWizard({ onSuccess }: RiskWizardProps) {
         </div>
       </div>
 
+      {/* Binary Payout Info */}
+      {numPosition > 0 && (
+        <div className="p-3 bg-surface-alt rounded-lg space-y-1.5">
+          <div className="text-xs font-semibold flex items-center gap-1.5">
+            <span className="w-4 h-4 rounded-full bg-[#c8e64a]/30 flex items-center justify-center text-[8px] font-bold text-[#8aad2e]">✓</span>
+            Binary Payout
+          </div>
+          <div className="text-xs text-muted leading-relaxed">
+            If the gap meets or exceeds your <span className="font-semibold text-fg">{threshold}%</span> threshold, you receive{" "}
+            <span className="font-semibold text-fg">100%</span> of your coverage. Below threshold = no payout.
+          </div>
+        </div>
+      )}
+
       {/* Premium */}
       <div className="space-y-1">
         <div className="text-xs text-muted uppercase tracking-wider">Premium</div>
@@ -173,10 +226,18 @@ export default function RiskWizard({ onSuccess }: RiskWizardProps) {
         ) : premium.amount !== null ? (
           <>
             <div className="text-2xl font-bold font-mono">
-              ${premium.amount.toFixed(2)}
+              {plan === "weekly" ? (
+                <>${premium.amount.toFixed(2)}</>
+              ) : (
+                <>${totalPremium!.toFixed(2)} <span className="text-sm font-normal text-muted">total</span></>
+              )}
             </div>
             <div className="text-xs text-muted">
-              {premiumPercent(premium.amount, effectiveCoverage).toFixed(2)}% of coverage (10% base rate · utilization adjusted)
+              {plan === "weekly" ? (
+                <>{premiumPercent(premium.amount, effectiveCoverage).toFixed(2)}% of coverage · binary payout</>
+              ) : (
+                <>${discountedPremium!.toFixed(2)}/week × {planWeeks} weeks · {planDiscount}% off</>
+              )}
             </div>
           </>
         ) : null}
@@ -205,7 +266,9 @@ export default function RiskWizard({ onSuccess }: RiskWizardProps) {
           ? "Connect Wallet"
           : purchasing || approving
           ? approving ? "Approving..." : "Purchasing..."
-          : "Buy Insurance"}
+          : plan === "weekly" ? "Buy Insurance"
+          : plan === "monthly" ? "Buy 4-Week Plan"
+          : "Buy 8-Week Plan"}
       </button>
 
       {/* Advanced */}

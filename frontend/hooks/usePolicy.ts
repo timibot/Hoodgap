@@ -25,11 +25,36 @@ export function usePolicy() {
       const userPolicies: PolicyDisplay[] = [];
 
       for (let i = 0; i < nextId; i++) {
+        try {
+          const owner = await hoodgapReadOnly.ownerOf(i);
+          if (owner.toLowerCase() !== address.toLowerCase()) continue;
+        } catch {
+          continue; // NFT doesn't exist or was burned
+        }
+
         const p = await hoodgapReadOnly.policies(i);
-        if (p.holder.toLowerCase() === address.toLowerCase()) {
           let policyStatus: PolicyDisplay["status"] = "active";
           if (p.settled && p.paidOut) policyStatus = "settled-paid";
           else if (p.settled) policyStatus = "settled-nopay";
+
+          // Subscription info
+          let subscriptionId: number | undefined;
+          let subscriptionPosition: string | undefined;
+          try {
+            const subId = Number(await hoodgapReadOnly.policySubscriptionId(i));
+            if (subId > 0 || (await hoodgapReadOnly.getSubscription(0)).totalWeeks > 0) {
+              const sub = await hoodgapReadOnly.getSubscription(subId);
+              if (sub.totalWeeks > 0) {
+                subscriptionId = subId;
+                const label = Number(sub.totalWeeks) === 4 ? "Monthly" : "Season";
+                // Figure out which week within the subscription
+                const weekNum = Number(p.settlementWeek) - Number(sub.startWeek) + 1;
+                subscriptionPosition = `${label} ${weekNum}/${sub.totalWeeks}`;
+              }
+            }
+          } catch {
+            // Not part of a subscription
+          }
 
           userPolicies.push({
             id: i,
@@ -42,8 +67,9 @@ export function usePolicy() {
             settled: p.settled,
             paidOut: p.paidOut,
             status: policyStatus,
+            subscriptionId,
+            subscriptionPosition,
           });
-        }
       }
 
       setPolicies(userPolicies);

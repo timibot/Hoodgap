@@ -1,4 +1,5 @@
-import HoodGapABI from "@/abi/HoodGap.json";
+import HoodGapArtifact from "@/abi/HoodGap.json";
+const HoodGapABI = HoodGapArtifact.abi;
 import ERC20ABI from "@/abi/ERC20.json";
 
 export const HOODGAP_ADDRESS =

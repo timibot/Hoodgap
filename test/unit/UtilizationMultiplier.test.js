@@ -34,29 +34,29 @@ describe("Unit: UtilizationMultiplier", function () {
     expect(mult).to.be.lt(10_010n);
   });
 
-  it("returns ~10625 (1.0625x) at 25% utilisation", async function () {
+  it("returns ~11562 (1.1562x) at 25% utilisation", async function () {
     const ctx = await deploy();
     await ctx.hoodgap.connect(ctx.staker).stake(STAKE_100K);
-    // 25 % → U = 2500 bp → U² = 2500²/10000 = 625 → 1 + 625 = 10625
+    // 25% → U = 2500 bp → 0.5U = 1250, 0.5U² = 2500²/20000 = 312 → 10000 + 1250 + 312 = 11562
     const mult = await ctx.hoodgap.getUtilizationMultiplier(USDC(25_000));
-    expect(mult).to.equal(10_625n);
+    expect(mult).to.equal(11_562n);
   });
 
-  it("returns ~12500 (1.25x) at 50% utilisation", async function () {
+  it("returns ~13750 (1.375x) at 50% utilisation", async function () {
     const ctx = await deploy();
     await ctx.hoodgap.connect(ctx.staker).stake(STAKE_100K);
-    // 50 % → U = 5000 bp → U² = 25000000/10000 = 2500 → 12500
+    // 50% → U = 5000 bp → 0.5U = 2500, 0.5U² = 5000²/20000 = 1250 → 10000 + 2500 + 1250 = 13750
     const mult = await ctx.hoodgap.getUtilizationMultiplier(USDC(50_000));
-    expect(mult).to.equal(12_500n);
+    expect(mult).to.equal(13_750n);
   });
 
-  it("returns ~19025 (1.9025x) when capped at 95% utilisation", async function () {
+  it("returns ~19262 (1.9262x) when capped at 95% utilisation", async function () {
     const ctx = await deploy();
     await ctx.hoodgap.connect(ctx.staker).stake(STAKE_100K);
     // Pool is $100k. Buying $99k → 99%, but capped at 95%
-    // U = 9500 → U² = 9500²/10000 = 9025 → 10000 + 9025 = 19025
+    // U = 9500 → 0.5U = 4750, 0.5U² = 9500²/20000 = 4512 → 10000 + 4750 + 4512 = 19262
     const mult = await ctx.hoodgap.getUtilizationMultiplier(USDC(99_000));
-    expect(mult).to.equal(19_025n);
+    expect(mult).to.equal(19_262n);
   });
 
   it("multiplier increases monotonically with coverage", async function () {

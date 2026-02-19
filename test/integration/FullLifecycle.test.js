@@ -41,7 +41,7 @@ describe("Integration: FullLifecycle", function () {
       .to.changeTokenBalance(ctx.usdc, ctx.staker, STAKE_100K);
   });
 
-  it("full lifecycle: stake → buy → settle (gap triggered) → holder receives payout", async function () {
+  it("full lifecycle: stake → buy → settle (gap triggered) → holder receives full payout", async function () {
     const ctx      = await deploy();
     const policyId = await stakeThenBuy(ctx);
 
@@ -49,6 +49,7 @@ describe("Integration: FullLifecycle", function () {
     await ctx.hoodgap.connect(ctx.owner).approveSettlement(settlementWeek, 10_000n, "all clear");
     await advanceToMonday(ctx, PRICE_230);
 
+    // 8% gap on 5% threshold → binary payout = full coverage
     const holderBefore = await ctx.usdc.balanceOf(ctx.buyer.address);
     await ctx.hoodgap.settlePolicy(policyId);
     const holderAfter  = await ctx.usdc.balanceOf(ctx.buyer.address);

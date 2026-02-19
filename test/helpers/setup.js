@@ -32,8 +32,11 @@ const MAX_COVERAGE = USDC(50_000);
 
 // ─── Oracle prices (Chainlink 8 decimals) ─────────────────────────────────────
 const PRICE_250 = 250_00_000_000n;
-const PRICE_230 = 230_00_000_000n;
+const PRICE_240 = 240_00_000_000n;     // 4% gap from 250  (below 5% threshold)
+const PRICE_237 = 237_00_000_000n;     // 5.2% gap from 250 (just above 5% threshold → small graduated payout)
+const PRICE_230 = 230_00_000_000n;     // 8% gap from 250
 const PRICE_252 = 252_00_000_000n;
+const PRICE_225 = 225_00_000_000n;     // 10% gap from 250 (= 2× threshold → full payout)
 const PRICE_200 = 200_00_000_000n;
 
 // ─── Thresholds (basis points) ────────────────────────────────────────────────
@@ -160,7 +163,7 @@ async function advanceToMonday(ctx, mondayPrice, mondayTs) {
 module.exports = {
   REFERENCE_WEEK, WEEK_SECONDS, WEEKEND_DURATION, FAILSAFE_DELAY,
   USDC, STAKE_100K, COVERAGE_10K, BUYER_WALLET, MAX_COVERAGE,
-  PRICE_250, PRICE_230, PRICE_252, PRICE_200,
+  PRICE_250, PRICE_240, PRICE_237, PRICE_230, PRICE_252, PRICE_225, PRICE_200,
   THRESHOLD_5, THRESHOLD_10, THRESHOLD_20,
   deploy, stakeThenBuy, advanceToMonday,
   getWeekNumber, getMonday, getFriday,

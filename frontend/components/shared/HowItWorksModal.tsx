@@ -62,8 +62,8 @@ export default function HowItWorksModal({ open, onClose }: HowItWorksModalProps)
         {/* Content */}
         <p className="text-sm text-muted leading-relaxed">
           HoodGap protects your stock position against weekend price gaps. 
-          Buy insurance before Friday close — if the stock gaps down on Monday open, 
-          you get paid automatically.
+          Buy insurance before Friday close — if the stock gaps down on Monday open 
+          beyond your threshold, you receive <span className="font-semibold text-fg">100% of your coverage</span>.
         </p>
 
         {/* Steps */}
@@ -85,10 +85,18 @@ export default function HowItWorksModal({ open, onClose }: HowItWorksModalProps)
           <div className="flex items-start gap-3">
             <span className="w-6 h-6 rounded-full bg-fg text-white text-xs font-bold flex items-center justify-center shrink-0 mt-0.5">3</span>
             <div className="text-sm">
-              <span className="font-semibold">Get paid</span>
-              <span className="text-muted"> — if the gap exceeds your threshold, your policy pays out automatically.</span>
+              <span className="font-semibold">Binary payout</span>
+              <span className="text-muted"> — if the gap meets or exceeds your threshold, you receive your full coverage amount. Below threshold = $0.</span>
             </div>
           </div>
+        </div>
+
+        {/* Payout example */}
+        <div className="bg-surface-alt rounded-lg p-3 text-xs text-muted space-y-1">
+          <div className="font-semibold text-fg text-sm">Example (5% threshold)</div>
+          <div className="flex justify-between"><span>3% gap</span><span className="font-mono text-negative">No payout</span></div>
+          <div className="flex justify-between"><span>5% gap</span><span className="font-mono text-fg">100% payout ✓</span></div>
+          <div className="flex justify-between"><span>8% gap</span><span className="font-mono text-fg">100% payout ✓</span></div>
         </div>
 
         {/* Close button */}

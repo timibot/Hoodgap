@@ -15,7 +15,7 @@ contract HoodGap is ERC721, Ownable, ReentrancyGuard {
 
     // --- Constants ---
 
-    uint256 public constant BASE_RATE = 1000; // 10% annual base (3yr avg: ~1 in 9 Mondays)
+    uint256 public constant BASE_RATE = 500; // 5% — TSLA weekend gap P(≥5%) ≈ 2-4%, binary payout
     uint256 public constant PLATFORM_FEE = 200; // 2%
     uint256 public constant RESERVE_CUT = 500; // 5%
     uint256 public constant AVG_VOLATILITY = 5000; // 50% baseline
@@ -24,6 +24,13 @@ contract HoodGap is ERC721, Ownable, ReentrancyGuard {
     uint256 public constant MAX_THRESHOLD = 2000; // 20% maximum gap
     uint256 public constant FAILSAFE_DELAY = 48 hours;
     uint256 public constant MAX_QUEUE_PROCESS = 20;
+
+    // V2: Subscription & secondary market constants
+    uint256 public constant MONTHLY_WEEKS = 4;
+    uint256 public constant SEASON_WEEKS = 8;
+    uint256 public constant MONTHLY_DISCOUNT = 500; // 5% off per-week rate
+    uint256 public constant SEASON_DISCOUNT = 1000; // 10% off per-week rate
+    uint256 public constant TRANSFER_FEE_BPS = 500; // 5% of premium on transfer
 
     uint256 public constant VOLATILITY_TIMELOCK = 24 hours;
     uint256 public constant HOLIDAY_TIMELOCK = 24 hours;
@@ -43,6 +50,16 @@ contract HoodGap is ERC721, Ownable, ReentrancyGuard {
         uint256 settlementWeek;
         bool settled;
         bool paidOut;
+    }
+
+    struct Subscription {
+        address owner;
+        uint256 coverage; // USDC (6 decimals) per week
+        uint256 threshold; // basis points
+        uint256 premiumPerWeek; // after discount, USDC (6 decimals)
+        uint256 startWeek; // first settlement week
+        uint256 totalWeeks; // 4 or 8
+        uint256 weeksMinted; // how many NFTs minted so far
     }
 
     struct WithdrawalRequest {
@@ -75,6 +92,12 @@ contract HoodGap is ERC721, Ownable, ReentrancyGuard {
 
     uint256 public nextPolicyId;
     mapping(uint256 => Policy) public policies;
+
+    // --- Subscriptions (V2) ---
+
+    uint256 public nextSubscriptionId;
+    mapping(uint256 => Subscription) public subscriptions;
+    mapping(uint256 => uint256) public policySubscriptionId; // policyId => subId
 
     // --- Settlement ---
 
@@ -151,6 +174,11 @@ contract HoodGap is ERC721, Ownable, ReentrancyGuard {
     event HolidayChangeQueued(uint256 indexed week, uint256 multiplier, uint256 executeAfter, string reason);
     event HolidayMultiplierSet(uint256 indexed week, uint256 multiplier, string reason);
     event HolidayChangeCancelled(uint256 indexed week, uint256 timestamp);
+
+    // V2 events
+    event SubscriptionCreated(address indexed owner, uint256 indexed subId, uint256 numWeeks, uint256 totalPremium);
+    event WeekPolicyMinted(uint256 indexed subId, uint256 indexed policyId, uint256 weekNumber);
+    event PolicyTransferred(uint256 indexed policyId, address indexed from, address indexed to, uint256 fee);
 
     event Paused(address indexed by);
     event Unpaused(address indexed by);
@@ -251,7 +279,7 @@ contract HoodGap is ERC721, Ownable, ReentrancyGuard {
 
         uint256 premium = (basePremium * utilMultiplier * volMultiplier * timeMultiplier) / 1e12;
 
-        uint256 minPremium = coverage / 100;
+        uint256 minPremium = coverage / 400; // 0.25% floor
         if (premium < minPremium) return minPremium;
 
         uint256 maxPremium = (coverage * 95) / 100;
@@ -464,21 +492,25 @@ contract HoodGap is ERC721, Ownable, ReentrancyGuard {
         policy.settled = true;
         totalCoverage -= policy.coverage;
 
-        if (gap >= policy.threshold) {
+        // Binary payout: gap >= threshold → full coverage
+        uint256 payout = HoodGapMath.calculatePayout(policy.coverage, gap, policy.threshold);
+
+        if (payout > 0) {
             policy.paidOut = true;
 
-            if (totalStaked < policy.coverage) {
-                uint256 shortfall = policy.coverage - totalStaked;
+            if (totalStaked < payout) {
+                uint256 shortfall = payout - totalStaked;
                 require(reserveBalance >= shortfall, "Insufficient pool + reserve funds");
                 reserveBalance -= shortfall;
                 totalStaked = 0;
                 emit ReserveUsed(shortfall, totalCoverage, policyId);
             } else {
-                totalStaked -= policy.coverage;
+                totalStaked -= payout;
             }
 
-            require(USDC.transfer(policy.holder, policy.coverage), "Payout transfer failed");
-            emit PolicyPaidOut(policyId, policy.holder, policy.coverage, gap);
+            address currentOwner = ownerOf(policyId);
+            require(USDC.transfer(currentOwner, payout), "Payout transfer failed");
+            emit PolicyPaidOut(policyId, currentOwner, payout, gap);
         }
 
         emit PolicySettled(policyId, mondayPrice, adjustedFriday, gap, policy.paidOut);
@@ -594,6 +626,128 @@ contract HoodGap is ERC721, Ownable, ReentrancyGuard {
         address old = treasury;
         treasury = newTreasury;
         emit TreasuryUpdated(old, newTreasury);
+    }
+
+    // --- V2: Subscriptions ---
+
+    /// @notice Buy a multi-week subscription (4 = monthly, 8 = season pass)
+    function buySubscription(
+        uint256 coverage,
+        uint256 threshold,
+        uint256 numWeeks
+    ) external nonReentrant whenNotPaused returns (uint256) {
+        require(coverage > 0 && coverage <= MAX_POLICY_COVERAGE, "Invalid coverage");
+        require(threshold >= MIN_THRESHOLD && threshold <= MAX_THRESHOLD, "Threshold must be 5-20%");
+        require(numWeeks == MONTHLY_WEEKS || numWeeks == SEASON_WEEKS, "Must be 4 or 8 weeks");
+        require(totalCoverage + coverage <= totalStaked, "Insufficient pool liquidity");
+
+        uint256 weeklyPremium = calculatePremium(coverage);
+        uint256 discount = numWeeks == MONTHLY_WEEKS ? MONTHLY_DISCOUNT : SEASON_DISCOUNT;
+        uint256 discountedWeekly = weeklyPremium - (weeklyPremium * discount) / 10000;
+        uint256 totalPremium = discountedWeekly * numWeeks;
+
+        require(USDC.transferFrom(msg.sender, address(this), totalPremium), "USDC transfer failed");
+
+        uint256 platformFee = (totalPremium * PLATFORM_FEE) / 10000;
+        uint256 reserveCut = (totalPremium * RESERVE_CUT) / 10000;
+        reserveBalance += reserveCut;
+        require(USDC.transfer(treasury, platformFee), "Platform fee transfer failed");
+
+        uint256 subId = nextSubscriptionId++;
+        uint256 settlementWeek = getCurrentSettlementWeek();
+
+        subscriptions[subId] = Subscription({
+            owner: msg.sender,
+            coverage: coverage,
+            threshold: threshold,
+            premiumPerWeek: discountedWeekly,
+            startWeek: settlementWeek,
+            totalWeeks: numWeeks,
+            weeksMinted: 0
+        });
+
+        emit SubscriptionCreated(msg.sender, subId, numWeeks, totalPremium);
+
+        // Immediately mint week 1 policy
+        _mintSubscriptionPolicy(subId);
+
+        return subId;
+    }
+
+    /// @notice Mint the next week's policy NFT for a subscription
+    function mintWeekPolicy(uint256 subId) external nonReentrant {
+        _mintSubscriptionPolicy(subId);
+    }
+
+    function _mintSubscriptionPolicy(uint256 subId) internal {
+        Subscription storage sub = subscriptions[subId];
+        require(sub.totalWeeks > 0, "Subscription does not exist");
+        require(sub.weeksMinted < sub.totalWeeks, "All weeks already minted");
+
+        uint256 targetWeek = sub.startWeek + sub.weeksMinted;
+        uint256 currentSettlement = getCurrentSettlementWeek();
+        require(currentSettlement >= targetWeek, "Too early to mint this week");
+        require(totalCoverage + sub.coverage <= totalStaked, "Insufficient pool liquidity");
+
+        (, int256 answer, , uint256 updatedAt, ) = priceOracle.latestRoundData();
+        require(answer > 0, "Invalid oracle price");
+        require(block.timestamp - updatedAt < 1 hours, "Oracle price too stale");
+
+        uint256 policyId = nextPolicyId++;
+
+        policies[policyId] = Policy({
+            holder: sub.owner,
+            coverage: sub.coverage,
+            threshold: sub.threshold,
+            premium: sub.premiumPerWeek,
+            purchaseTime: block.timestamp,
+            fridayClose: uint256(answer),
+            settlementWeek: targetWeek,
+            settled: false,
+            paidOut: false
+        });
+
+        totalCoverage += sub.coverage;
+        policySubscriptionId[policyId] = subId;
+        sub.weeksMinted++;
+
+        _mint(sub.owner, policyId);
+
+        emit WeekPolicyMinted(subId, policyId, sub.weeksMinted);
+        emit PolicyPurchased(
+            sub.owner,
+            policyId,
+            sub.coverage,
+            sub.threshold,
+            sub.premiumPerWeek,
+            uint256(answer),
+            targetWeek
+        );
+    }
+
+    /// @notice Get subscription details
+    function getSubscription(uint256 subId) external view returns (Subscription memory) {
+        return subscriptions[subId];
+    }
+
+    // --- V2: Transfer fee ---
+
+    /// @dev Override ERC721 _update to collect transfer fee on secondary sales
+    function _update(address to, uint256 tokenId, address auth) internal override returns (address) {
+        address from = _ownerOf(tokenId);
+
+        // Only charge fee on transfers (not mints or burns)
+        if (from != address(0) && to != address(0)) {
+            uint256 premium = policies[tokenId].premium;
+            uint256 fee = (premium * TRANSFER_FEE_BPS) / 10000;
+            if (fee > 0) {
+                require(USDC.transferFrom(from, address(this), fee), "Transfer fee payment failed");
+                reserveBalance += fee;
+                emit PolicyTransferred(tokenId, from, to, fee);
+            }
+        }
+
+        return super._update(to, tokenId, auth);
     }
 
     // --- View: pool stats & policy queries ---

@@ -79,7 +79,7 @@ describe("Scenario: MultipleGaps", function () {
     expect(await ctx.hoodgap.totalCoverage()).to.equal(0n);
   });
 
-  it("totalStaked correctly reflects payouts (2 × $10k paid out)", async function () {
+  it("totalStaked correctly reflects binary payouts (2 × $10k paid out)", async function () {
     const ctx = await multiPolicySetup();
 
     const [stakedBefore] = await ctx.hoodgap.getPoolStats();
@@ -93,11 +93,11 @@ describe("Scenario: MultipleGaps", function () {
     await ctx.hoodgap.settlePolicy(2n);
 
     const [stakedAfter] = await ctx.hoodgap.getPoolStats();
-    // Policies 0 and 2 paid out ($10k each), policy 1 did not
+    // Policies 0 and 2: 8% gap on 5% threshold → full coverage each
     expect(stakedBefore - stakedAfter).to.equal(COVERAGE_10K * 2n);
   });
 
-  it("payouts go to correct holders", async function () {
+  it("binary payouts go to correct holders", async function () {
     const ctx = await multiPolicySetup();
     const settlementWeek = await ctx.hoodgap.getCurrentSettlementWeek();
     await ctx.hoodgap.connect(ctx.owner).approveSettlement(settlementWeek, 10_000n, "test");
@@ -106,10 +106,11 @@ describe("Scenario: MultipleGaps", function () {
     const buyerBefore = await ctx.usdc.balanceOf(ctx.buyer.address);
     const aliceBefore = await ctx.usdc.balanceOf(ctx.alice.address);
 
-    await ctx.hoodgap.settlePolicy(0n); // buyer
-    await ctx.hoodgap.settlePolicy(1n); // buyer (no payout)
-    await ctx.hoodgap.settlePolicy(2n); // alice
+    await ctx.hoodgap.settlePolicy(0n); // buyer — full coverage
+    await ctx.hoodgap.settlePolicy(1n); // buyer (no payout — below 10% threshold)
+    await ctx.hoodgap.settlePolicy(2n); // alice — full coverage
 
+    // 8% gap on 5% threshold → full coverage each
     const buyerGain = (await ctx.usdc.balanceOf(ctx.buyer.address)) - buyerBefore;
     const aliceGain = (await ctx.usdc.balanceOf(ctx.alice.address)) - aliceBefore;
 

@@ -10,8 +10,9 @@ module.exports = {
     settings: {
       optimizer: {
         enabled: true,
-        runs: 200,
+        runs: 50,
       },
+      viaIR: true,
       // Hardening: Explicitly set EVM version to avoid PUSH0 issues on L2
       evmVersion: "paris", 
     },
@@ -37,6 +38,7 @@ module.exports = {
       accounts: process.env.PRIVATE_KEY ? [process.env.PRIVATE_KEY] : [],
       // Architecture Note: Fixed gas price is often safer on early-stage testnets
       gasPrice: 1000000000, 
+      timeout: 300000, // 5 minutes
     },
 
     robinhoodMainnet: {

@@ -19,7 +19,10 @@ const {
   COVERAGE_10K,
   MAX_COVERAGE,
   PRICE_250,
+  PRICE_240,
+  PRICE_237,
   PRICE_230,
+  PRICE_225,
   PRICE_252,
   THRESHOLD_5,
   THRESHOLD_10,
@@ -220,20 +223,57 @@ describe("Integration: BuySettle", function () {
     });
   });
 
-  // ─── settlePolicy() — with payout ─────────────────────────────────────────────
-  describe("settlePolicy() — with payout", function () {
-    it("pays full coverage to policy holder", async function () {
+  // ─── settlePolicy() — with binary payout ─────────────────────────────────
+  describe("settlePolicy() — binary payout", function () {
+    it("pays full coverage when gap >= threshold (8% gap on 5% threshold)", async function () {
       const ctx      = await deploy();
       const policyId = await stakeThenBuy(ctx); // threshold 5%, gap will be 8%
       const settlementWeek = await ctx.hoodgap.getCurrentSettlementWeek();
       await ctx.hoodgap.connect(ctx.owner).approveSettlement(settlementWeek, 10_000n, "test");
       await advanceToMonday(ctx, PRICE_230);
 
+      // gap = (250-230)/250 * 10000 = 800 bp >= 500 threshold → full coverage
       await expect(() => ctx.hoodgap.settlePolicy(policyId))
         .to.changeTokenBalance(ctx.usdc, ctx.buyer, COVERAGE_10K);
     });
 
-    it("marks paidOut = true", async function () {
+    it("pays full coverage when gap >= 2× threshold (10% gap on 5%)", async function () {
+      const ctx      = await deploy();
+      const policyId = await stakeThenBuy(ctx); // threshold 5%
+      const settlementWeek = await ctx.hoodgap.getCurrentSettlementWeek();
+      await ctx.hoodgap.connect(ctx.owner).approveSettlement(settlementWeek, 10_000n, "test");
+      await advanceToMonday(ctx, PRICE_225);
+
+      // gap = 1000 bp >= 500 threshold → full coverage
+      await expect(() => ctx.hoodgap.settlePolicy(policyId))
+        .to.changeTokenBalance(ctx.usdc, ctx.buyer, COVERAGE_10K);
+    });
+
+    it("pays full coverage when gap barely exceeds threshold (5.2% gap on 5%)", async function () {
+      const ctx      = await deploy();
+      const policyId = await stakeThenBuy(ctx); // threshold 5%
+      const settlementWeek = await ctx.hoodgap.getCurrentSettlementWeek();
+      await ctx.hoodgap.connect(ctx.owner).approveSettlement(settlementWeek, 10_000n, "test");
+      await advanceToMonday(ctx, PRICE_237);
+
+      // gap = 520 bp >= 500 threshold → full coverage
+      await expect(() => ctx.hoodgap.settlePolicy(policyId))
+        .to.changeTokenBalance(ctx.usdc, ctx.buyer, COVERAGE_10K);
+    });
+
+    it("pays nothing when gap is below threshold (4% gap on 5%)", async function () {
+      const ctx      = await deploy();
+      const policyId = await stakeThenBuy(ctx); // threshold 5%
+      const settlementWeek = await ctx.hoodgap.getCurrentSettlementWeek();
+      await ctx.hoodgap.connect(ctx.owner).approveSettlement(settlementWeek, 10_000n, "test");
+      await advanceToMonday(ctx, PRICE_240);
+
+      // gap = 400 bp < 500 threshold → $0
+      await expect(() => ctx.hoodgap.settlePolicy(policyId))
+        .to.changeTokenBalance(ctx.usdc, ctx.buyer, 0n);
+    });
+
+    it("marks paidOut = true for binary payout", async function () {
       const ctx      = await deploy();
       const policyId = await stakeThenBuy(ctx);
       const settlementWeek = await ctx.hoodgap.getCurrentSettlementWeek();
@@ -244,19 +284,19 @@ describe("Integration: BuySettle", function () {
       expect(p.paidOut).to.equal(true);
     });
 
-    it("emits PolicyPaidOut with correct gap", async function () {
+    it("emits PolicyPaidOut with full coverage amount", async function () {
       const ctx      = await deploy();
       const policyId = await stakeThenBuy(ctx);
       const settlementWeek = await ctx.hoodgap.getCurrentSettlementWeek();
       await ctx.hoodgap.connect(ctx.owner).approveSettlement(settlementWeek, 10_000n, "test");
       await advanceToMonday(ctx, PRICE_230);
-      // gap = (250 - 230) / 250 * 10000 = 800 bp
+      // gap = 800 bp, payout = full coverage
       await expect(ctx.hoodgap.settlePolicy(policyId))
         .to.emit(ctx.hoodgap, "PolicyPaidOut")
         .withArgs(policyId, ctx.buyer.address, COVERAGE_10K, 800n);
     });
 
-    it("reduces totalStaked by coverage amount", async function () {
+    it("reduces totalStaked by full coverage amount", async function () {
       const ctx        = await deploy();
       const policyId   = await stakeThenBuy(ctx);
       const settlementWeek = await ctx.hoodgap.getCurrentSettlementWeek();
@@ -264,6 +304,7 @@ describe("Integration: BuySettle", function () {
       const stakedBefore = await ctx.hoodgap.totalStaked();
       await advanceToMonday(ctx, PRICE_230);
       await ctx.hoodgap.settlePolicy(policyId);
+      // payout = full coverage
       expect(await ctx.hoodgap.totalStaked()).to.equal(stakedBefore - COVERAGE_10K);
     });
   });

@@ -24,7 +24,7 @@ interface PremiumQuote {
 function estimatePremiumLocally(coverageUsd: number): number {
   const weeklyRate = 0.10 / 52;
   const basePremium = coverageUsd * weeklyRate;
-  const minPremium = coverageUsd * 0.01;
+  const minPremium = coverageUsd * 0.0025; // 0.25% floor (matches contract)
   return Math.max(basePremium, minPremium);
 }
 

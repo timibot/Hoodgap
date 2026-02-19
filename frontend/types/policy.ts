@@ -21,4 +21,6 @@ export interface PolicyDisplay {
   settled: boolean;
   paidOut: boolean;
   status: "active" | "settled-paid" | "settled-nopay" | "expired";
+  subscriptionId?: number;
+  subscriptionPosition?: string; // e.g. "2/4"
 }
