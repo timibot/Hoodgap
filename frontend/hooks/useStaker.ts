@@ -36,7 +36,7 @@ export function usePoolStats(): {
         totalStaked,
         totalCoverage,
         reserveBalance: fromUSDC(raw[2]),
-        utilization: Number(raw[3]) / 100,
+        utilization: totalStaked > 0 ? (totalCoverage / totalStaked) * 100 : 0,
         policyCount: Number(raw[4]),
         freeLiquidity: Math.max(0, totalStaked - totalCoverage),
       });
