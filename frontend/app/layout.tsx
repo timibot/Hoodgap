@@ -9,8 +9,12 @@ import TransactionToast from "@/components/shared/TransactionToast";
 import ErrorBoundary from "@/components/shared/ErrorBoundary";
 
 export const metadata: Metadata = {
-  title: "HoodGap — Insure",
+  title: "HoodGap | Insurance doesn't have to be boring",
   description: "Protect your portfolio against weekend price gaps on Robinhood Chain.",
+  icons: {
+    icon: "/icon.png",
+    apple: "/apple-icon.png",
+  },
 };
 
 export default function RootLayout({
