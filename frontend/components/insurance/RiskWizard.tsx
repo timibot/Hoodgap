@@ -45,7 +45,7 @@ export default function RiskWizard({ onSuccess }: RiskWizardProps) {
     : premium.amount;
   const totalPremium = discountedPremium !== null ? discountedPremium * planWeeks : null;
   const totalPremiumWei = premium.amountWei && planWeeks > 1
-    ? (premium.amountWei - (premium.amountWei * BigInt(planDiscount * 100)) / 1000000n) * BigInt(planWeeks)
+    ? (premium.amountWei - (premium.amountWei * BigInt(planDiscount * 100)) / 10000n) * BigInt(planWeeks)
     : premium.amountWei;
 
   const positionValid = validatePosition(numPosition);

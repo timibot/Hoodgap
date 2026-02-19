@@ -49,10 +49,14 @@ export default function FaucetButton() {
       const tx = await mockUsdc.mint(address, MINT_AMOUNT);
       await tx.wait();
       setSuccess(true);
+      // Small delay to let the RPC node update state before reading balance
+      await new Promise((r) => setTimeout(r, 1000));
       await refresh();
+      // Second refresh after a longer delay to catch slow RPC propagation
+      setTimeout(() => refresh(), 3000);
       // Prompt wallet to track the token
       await addTokenToWallet();
-      setTimeout(() => setSuccess(false), 3000);
+      setTimeout(() => setSuccess(false), 4000);
     } catch (err: any) {
       console.error("Faucet mint failed:", err);
       alert(err.reason || err.message || "Mint failed");
