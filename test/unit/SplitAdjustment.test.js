@@ -4,7 +4,7 @@
  * test/unit/SplitAdjustment.test.js
  *
  * Tests: calculateGap(), week math (getWeekNumber/getMonday/getFriday),
- *        split ratio effect on adjusted Friday price, updateWeekTiming().
+ *        split ratio effect on adjusted close price, market timing helpers.
  */
 
 const { expect } = require("chai");
@@ -13,13 +13,14 @@ const {
   deploy,
   REFERENCE_WEEK,
   WEEK_SECONDS,
-  WEEKEND_DURATION,
   PRICE_250,
   PRICE_230,
   PRICE_252,
   getWeekNumber,
   getMonday,
   getFriday,
+  getMarketClose,
+  getNextMarketOpen,
 } = require("../helpers/setup");
 
 describe("Unit: SplitAdjustment", function () {
@@ -35,9 +36,9 @@ describe("Unit: SplitAdjustment", function () {
       expect(await ctx.hoodgap.getWeekNumber(REFERENCE_WEEK + WEEK_SECONDS)).to.equal(1n);
     });
 
-    it("returns correct week for ctx.MONDAY", async function () {
+    it("returns correct week for fixture time", async function () {
       const ctx = await deploy();
-      expect(await ctx.hoodgap.getWeekNumber(ctx.MONDAY)).to.equal(ctx.WEEK);
+      expect(await ctx.hoodgap.getWeekNumber(ctx.PIN_TIME)).to.equal(ctx.WEEK);
     });
 
     it("reverts for timestamps before REFERENCE_WEEK", async function () {
@@ -54,67 +55,53 @@ describe("Unit: SplitAdjustment", function () {
       expect(await ctx.hoodgap.getMonday(0n)).to.equal(REFERENCE_WEEK);
     });
 
-    it("getMonday(week) equals ctx.MONDAY", async function () {
+    it("getMonday returns the Monday 9:30am EST for a given week", async function () {
       const ctx = await deploy();
-      expect(await ctx.hoodgap.getMonday(ctx.WEEK)).to.equal(ctx.MONDAY);
+      const monday = await ctx.hoodgap.getMonday(ctx.WEEK);
+      expect(monday).to.equal(getMonday(ctx.WEEK));
     });
 
-    it("getFriday(week) equals ctx.FRIDAY", async function () {
+    it("getFriday returns the Friday close for a given week", async function () {
       const ctx = await deploy();
-      expect(await ctx.hoodgap.getFriday(ctx.WEEK)).to.equal(ctx.FRIDAY);
-    });
-
-    it("Monday - Friday = WEEKEND_DURATION (279000 s)", async function () {
-      const ctx    = await deploy();
-      const monday = await ctx.hoodgap.getMonday(50n);
-      const friday = await ctx.hoodgap.getFriday(50n);
-      expect(monday - friday).to.equal(WEEKEND_DURATION);
+      const friday = await ctx.hoodgap.getFriday(ctx.WEEK);
+      expect(friday).to.equal(getFriday(ctx.WEEK));
     });
   });
 
-  // ─── updateWeekTiming ────────────────────────────────────────────────────────
-  describe("updateWeekTiming", function () {
-    it("on Saturday sets fridayCloseTime and mondayOpenTime correctly", async function () {
+  // ─── Market close / open helpers ──────────────────────────────────────────────
+  describe("getMarketClose / getNextMarketOpen", function () {
+    it("getMarketClose returns correct timestamp for Monday (day 0)", async function () {
       const ctx = await deploy();
-      // The fixture already called updateWeekTiming() on Saturday.
-      // On Saturday of targetWeek: getWeekNumber(SAT) = targetWeek - 1
-      // fridayCloseTime = getFriday(targetWeek - 1)
-      // mondayOpenTime = getMonday(targetWeek)
-      const expectedFriday = getFriday(ctx.WEEK - 1n);
-      const expectedMonday = getMonday(ctx.WEEK);
-
-      await ctx.hoodgap.updateWeekTiming();
-      expect(await ctx.hoodgap.fridayCloseTime()).to.equal(expectedFriday);
-      expect(await ctx.hoodgap.mondayOpenTime()).to.equal(expectedMonday);
+      const contractClose = await ctx.hoodgap.getMarketClose(ctx.WEEK, 0n);
+      expect(contractClose).to.equal(getMarketClose(ctx.WEEK, 0n));
     });
 
-    it("after Monday advances to next week timing", async function () {
+    it("getMarketClose returns correct timestamp for Friday (day 4)", async function () {
       const ctx = await deploy();
-      // Move past getMonday(targetWeek) = ctx.MONDAY
-      await time.setNextBlockTimestamp(Number(ctx.MONDAY) + 3600);
-      await ctx.hoodgap.updateWeekTiming();
-
-      // On Monday of targetWeek: getWeekNumber(MONDAY) = targetWeek
-      // fridayCloseTime = getFriday(targetWeek) = ctx.FRIDAY
-      // mondayOpenTime = getMonday(targetWeek + 1) = MONDAY_NEXT
-      expect(await ctx.hoodgap.fridayCloseTime()).to.equal(ctx.FRIDAY);
-      expect(await ctx.hoodgap.mondayOpenTime()).to.equal(ctx.MONDAY_NEXT);
+      const contractClose = await ctx.hoodgap.getMarketClose(ctx.WEEK, 4n);
+      expect(contractClose).to.equal(getMarketClose(ctx.WEEK, 4n));
     });
 
-    it("emits WeekTimingUpdated event", async function () {
+    it("getNextMarketOpen for Monday returns Tuesday open", async function () {
       const ctx = await deploy();
-      // On Saturday: currentWeek = targetWeek - 1
-      const satWeek = ctx.WEEK - 1n;
-      const expectedFriday = getFriday(satWeek);
-      const expectedMonday = getMonday(satWeek + 1n);
-      await expect(ctx.hoodgap.updateWeekTiming())
-        .to.emit(ctx.hoodgap, "WeekTimingUpdated")
-        .withArgs(satWeek, expectedFriday, expectedMonday);
+      const open = await ctx.hoodgap.getNextMarketOpen(ctx.WEEK, 0n);
+      expect(open).to.equal(getNextMarketOpen(ctx.WEEK, 0n));
     });
 
-    it("is callable by anyone (not owner-only)", async function () {
+    it("getNextMarketOpen for Friday returns next Monday open", async function () {
       const ctx = await deploy();
-      await expect(ctx.hoodgap.connect(ctx.alice).updateWeekTiming()).to.not.be.reverted;
+      const open = await ctx.hoodgap.getNextMarketOpen(ctx.WEEK, 4n);
+      // Friday gap opens at next week's Monday
+      expect(open).to.equal(getMonday(ctx.WEEK + 1n));
+    });
+
+    it("close time is always before next open time", async function () {
+      const ctx = await deploy();
+      for (let day = 0; day < 5; day++) {
+        const close = await ctx.hoodgap.getMarketClose(ctx.WEEK, day);
+        const open  = await ctx.hoodgap.getNextMarketOpen(ctx.WEEK, day);
+        expect(open).to.be.gt(close);
+      }
     });
   });
 
@@ -146,23 +133,23 @@ describe("Unit: SplitAdjustment", function () {
 
   // ─── Split ratio effect ───────────────────────────────────────────────────────
   describe("Split ratio in settlement gap calculation", function () {
-    it("2:1 split halves adjusted Friday price (splitRatio = 5000)", async function () {
+    it("2:1 split halves adjusted close price (splitRatio = 5000)", async function () {
       const ctx = await deploy();
-      const fridayClose     = PRICE_250;
-      const splitRatio      = 5_000n;
-      const adjustedFriday  = (fridayClose * splitRatio) / 10_000n;
-      const gap             = await ctx.hoodgap.calculateGap(PRICE_230, adjustedFriday);
+      const closePrice     = PRICE_250;
+      const splitRatio     = 5_000n;
+      const adjustedClose  = (closePrice * splitRatio) / 10_000n;
+      const gap            = await ctx.hoodgap.calculateGap(PRICE_230, adjustedClose);
       expect(gap).to.equal(8_400n);
     });
 
-    it("3:1 split sets ratio to 3333 bp → adjustedFriday ≈ $83.33", async function () {
+    it("3:1 split sets ratio to 3333 bp → adjustedClose ≈ $83.33", async function () {
       const ctx = await deploy();
-      const adjustedFriday  = (PRICE_250 * 3_333n) / 10_000n;
-      const gap = await ctx.hoodgap.calculateGap(PRICE_230, adjustedFriday);
+      const adjustedClose = (PRICE_250 * 3_333n) / 10_000n;
+      const gap = await ctx.hoodgap.calculateGap(PRICE_230, adjustedClose);
       expect(gap).to.be.gt(0n);
     });
 
-    it("no split (ratio = 10000) keeps Friday price unchanged", async function () {
+    it("no split (ratio = 10000) keeps close price unchanged", async function () {
       const ctx = await deploy();
       const adjusted = (PRICE_250 * 10_000n) / 10_000n;
       expect(adjusted).to.equal(PRICE_250);

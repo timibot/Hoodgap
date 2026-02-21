@@ -4,10 +4,7 @@
  * test/unit/OracleValidation.test.js
  *
  * Tests: Oracle edge cases — zero price, negative price,
- *        staleness during settlement, oracle not updated after Monday.
- *
- * Complements PremiumCalculation.test.js (which covers basic staleness)
- * and BuySettle.test.js (which covers settlement gate checks).
+ *        staleness during settlement, oracle not updated after market open.
  */
 
 const { expect } = require("chai");
@@ -15,7 +12,7 @@ const { time }   = require("@nomicfoundation/hardhat-network-helpers");
 const {
   deploy,
   stakeThenBuy,
-  advanceToMonday,
+  advanceToOpen,
   USDC,
   STAKE_100K,
   COVERAGE_10K,
@@ -26,24 +23,16 @@ const {
 
 describe("Unit: OracleValidation", function () {
   // ─── Zero/negative prices ────────────────────────────────────────────────────
-  // Note: calculatePremium() only checks oracle staleness, NOT price validity.
-  // Price validity (answer > 0) is enforced in buyPolicy() and settlePolicy().
-  // These tests verify that buyPolicy catches invalid prices even though
-  // calculatePremium would not revert.
-
   it("calculatePremium does not validate oracle price (view function)", async function () {
     const ctx = await deploy();
     await ctx.hoodgap.connect(ctx.staker).stake(STAKE_100K);
 
-    // Set oracle to zero price — calculatePremium is a view function
-    // that only checks staleness, not price validity
     const ts = BigInt(await time.latest()) + 1n;
     await time.setNextBlockTimestamp(Number(ts));
     await ctx.oracle.update(0n, ts);
 
-    // calculatePremium will NOT revert — it doesn't check answer > 0
-    // The price check happens only in buyPolicy/settlePolicy
-    const premium = await ctx.hoodgap.calculatePremium(COVERAGE_10K);
+    // calculatePremium only checks staleness, not price validity
+    const premium = await ctx.hoodgap["calculatePremium(uint256,uint256)"](COVERAGE_10K, THRESHOLD_5);
     expect(premium).to.be.gte(0n);
   });
 
@@ -52,8 +41,6 @@ describe("Unit: OracleValidation", function () {
     const ctx = await deploy();
     await ctx.hoodgap.connect(ctx.staker).stake(STAKE_100K);
 
-    // First calculate premium with valid oracle (to approve enough USDC)
-    // Then corrupt oracle before buying
     const ts = BigInt(await time.latest()) + 1n;
     await time.setNextBlockTimestamp(Number(ts));
     await ctx.oracle.update(0n, ts);
@@ -79,12 +66,11 @@ describe("Unit: OracleValidation", function () {
   it("settlePolicy reverts when oracle returns zero at settlement time", async function () {
     const ctx      = await deploy();
     const policyId = await stakeThenBuy(ctx);
-    const settlementWeek = await ctx.hoodgap.getCurrentSettlementWeek();
-    await ctx.hoodgap.connect(ctx.owner).approveSettlement(settlementWeek, 10_000n, "test");
 
-    // Advance to Monday with zero price
-    await time.setNextBlockTimestamp(Number(ctx.MONDAY));
-    await ctx.oracle.update(0n, ctx.MONDAY);
+    // Advance to next market open (day 4 = Friday→Monday gap)
+    const openTs = ctx.getOpen(4);
+    await time.setNextBlockTimestamp(Number(openTs));
+    await ctx.oracle.update(0n, openTs);
 
     await expect(ctx.hoodgap.settlePolicy(policyId))
       .to.be.revertedWith("Invalid oracle price");
@@ -94,40 +80,37 @@ describe("Unit: OracleValidation", function () {
   it("settlePolicy reverts when oracle returns negative at settlement time", async function () {
     const ctx      = await deploy();
     const policyId = await stakeThenBuy(ctx);
-    const settlementWeek = await ctx.hoodgap.getCurrentSettlementWeek();
-    await ctx.hoodgap.connect(ctx.owner).approveSettlement(settlementWeek, 10_000n, "test");
 
-    // Advance to Monday with negative price
-    await time.setNextBlockTimestamp(Number(ctx.MONDAY));
-    await ctx.oracle.update(-100_00_000_000n, ctx.MONDAY);
+    const openTs = ctx.getOpen(4);
+    await time.setNextBlockTimestamp(Number(openTs));
+    await ctx.oracle.update(-100_00_000_000n, openTs);
 
     await expect(ctx.hoodgap.settlePolicy(policyId))
       .to.be.revertedWith("Invalid oracle price");
   });
 
-  // ─── Settlement rejects stale oracle (updated before Monday) ────────────────
-  it("settlePolicy reverts when oracle timestamp is before Monday open", async function () {
+  // ─── Settlement rejects stale oracle ────────────────────────────────────────
+  it("settlePolicy reverts when oracle timestamp is before market open", async function () {
     const ctx      = await deploy();
     const policyId = await stakeThenBuy(ctx);
-    const settlementWeek = await ctx.hoodgap.getCurrentSettlementWeek();
-    await ctx.hoodgap.connect(ctx.owner).approveSettlement(settlementWeek, 10_000n, "test");
 
-    // Advance chain to Monday but oracle timestamp is Saturday (before Monday)
-    const saturdayTs = ctx.MONDAY - 172_800n; // 2 days before Monday
-    await time.setNextBlockTimestamp(Number(ctx.MONDAY));
-    await ctx.oracle.update(PRICE_230, saturdayTs);
+    // Advance chain to market open but oracle timestamp is from before close
+    const openTs     = ctx.getOpen(4);
+    const staleTs    = ctx.getClose(4) - 100n; // before Friday close
+    await time.setNextBlockTimestamp(Number(openTs));
+    await ctx.oracle.update(PRICE_230, staleTs);
 
     await expect(ctx.hoodgap.settlePolicy(policyId))
-      .to.be.revertedWith("Oracle not updated since Monday open");
+      .to.be.revertedWith("Oracle not updated since market open");
   });
 
   // ─── buyPolicy rejects stale oracle ─────────────────────────────────────────
-  it("buyPolicy reverts when oracle is older than 1 hour", async function () {
+  it("buyPolicy reverts when oracle is older than 24 hours", async function () {
     const ctx = await deploy();
     await ctx.hoodgap.connect(ctx.staker).stake(STAKE_100K);
 
-    // Advance time by 2 hours from latest oracle update
-    await time.increase(2 * 3600);
+    // Advance time by 25 hours so oracle becomes stale
+    await time.increase(25 * 3600);
 
     await expect(ctx.hoodgap.connect(ctx.buyer).buyPolicy(COVERAGE_10K, THRESHOLD_5))
       .to.be.revertedWith("Oracle price too stale");
@@ -139,7 +122,7 @@ describe("Unit: OracleValidation", function () {
     await ctx.hoodgap.connect(ctx.staker).stake(STAKE_100K);
 
     // Make oracle stale
-    await time.increase(2 * 3600);
+    await time.increase(25 * 3600);
 
     // Refresh oracle
     const ts = BigInt(await time.latest()) + 1n;

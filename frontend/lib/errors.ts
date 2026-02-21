@@ -19,10 +19,16 @@ export function parseTransactionError(err: any): string {
     return "Not enough ETH for gas fees";
   }
 
+  // Numeric precision (e.g. toUSDC overflow)
+  if (raw.includes("NUMERIC_FAULT") || raw.includes("too many decimals")) {
+    return "Invalid amount — try a round dollar value";
+  }
+
   // Common contract revert reasons
   const revertMap: Record<string, string> = {
     "Amount must be > 0": "Enter an amount greater than zero",
     "Insufficient staker balance": "You don't have enough staked to withdraw this amount",
+    "Insufficient pool liquidity": "Not enough liquidity in the pool — reduce coverage or wait for more stakers",
     "USDC transfer failed": "USDC transfer failed — check your balance and approval",
     "Invalid coverage amount": "Coverage must be between $1 and $50,000",
     "Contract is paused": "The protocol is currently paused for maintenance",

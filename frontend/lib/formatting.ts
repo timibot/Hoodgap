@@ -57,7 +57,10 @@ export function formatDuration(seconds: number): string {
 }
 
 export function toUSDC(amount: number): bigint {
-  return parseUnits(amount.toString(), USDC_DECIMALS);
+  // Truncate to 6 decimal places to avoid JS floating-point artifacts
+  // e.g. 10000.300000000001 → "10000.300000"
+  const truncated = amount.toFixed(USDC_DECIMALS);
+  return parseUnits(truncated, USDC_DECIMALS);
 }
 
 export function fromUSDC(amount: bigint): number {

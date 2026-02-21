@@ -2,18 +2,22 @@
 pragma solidity 0.8.20;
 
 /// @title HoodGapMath
-/// @notice Pure math library for HoodGap protocol
+/// @notice Pure math library for HoodGap all-gap insurance protocol
 library HoodGapMath {
-    /// @dev Jan 4, 2021 14:30 UTC (Monday 9:30am EST)
-    uint256 internal constant REFERENCE_WEEK = 1609770600;
-
-    /// @dev Fri 4:00pm EST → Mon 9:30am EST = 279000 seconds
-    uint256 internal constant WEEKEND_DURATION = 279000;
+    /// @dev Jan 6, 2021 14:30 UTC (Monday 9:30am EST) — reference week start
+    uint256 internal constant REFERENCE_WEEK = 1609940200;
 
     uint256 internal constant WEEK_SECONDS = 604800;
+    uint256 internal constant DAY_SECONDS = 86400;
+
+    /// @dev Market close = 21:00 UTC (4:00pm EST)
+    uint256 internal constant MARKET_CLOSE_OFFSET = 75600; // 21 hours from midnight UTC
+
+    /// @dev Market open = 14:30 UTC (9:30am EST)
+    uint256 internal constant MARKET_OPEN_OFFSET = 52200; // 14.5 hours from midnight UTC
 
     /// @notice Convert Unix timestamp to canonical week number
-    /// @dev Week 0 = Jan 4, 2021. Increments every 604800 seconds.
+    /// @dev Week 0 = Jan 6, 2021. Increments every 604800 seconds.
     function getWeekNumber(uint256 timestamp) internal pure returns (uint256) {
         require(timestamp >= REFERENCE_WEEK, "Before reference date");
         return (timestamp - REFERENCE_WEEK) / WEEK_SECONDS;
@@ -26,7 +30,35 @@ library HoodGapMath {
 
     /// @notice Get Friday 4:00pm EST (21:00 UTC) for a given week
     function getFriday(uint256 weekNumber) internal pure returns (uint256) {
-        return getMonday(weekNumber) - WEEKEND_DURATION;
+        // Friday is 4 days after Monday start, plus market close offset
+        return
+            REFERENCE_WEEK + (weekNumber * WEEK_SECONDS) + (4 * DAY_SECONDS) + MARKET_CLOSE_OFFSET - MARKET_OPEN_OFFSET;
+    }
+
+    /// @notice Get the market close timestamp for a specific day within a week
+    /// @param weekNumber The canonical week number
+    /// @param dayIndex 0=Monday, 1=Tuesday, 2=Wednesday, 3=Thursday, 4=Friday
+    /// @return closeTime Unix timestamp for 4:00pm EST (21:00 UTC) on that day
+    function getMarketClose(uint256 weekNumber, uint256 dayIndex) internal pure returns (uint256) {
+        require(dayIndex <= 4, "dayIndex must be 0-4");
+        uint256 mondayMidnight = REFERENCE_WEEK + (weekNumber * WEEK_SECONDS) - MARKET_OPEN_OFFSET;
+        return mondayMidnight + (dayIndex * DAY_SECONDS) + MARKET_CLOSE_OFFSET;
+    }
+
+    /// @notice Get the next market open after a given close
+    /// @param weekNumber The canonical week number
+    /// @param dayIndex 0=Monday close -> Tuesday open, ... 4=Friday close -> next Monday open
+    /// @return openTime Unix timestamp for the next market open (9:30am EST / 14:30 UTC)
+    function getNextMarketOpen(uint256 weekNumber, uint256 dayIndex) internal pure returns (uint256) {
+        require(dayIndex <= 4, "dayIndex must be 0-4");
+        if (dayIndex < 4) {
+            // Mon-Thu: next day open = close day + 1 at 9:30am EST
+            uint256 mondayMidnight = REFERENCE_WEEK + (weekNumber * WEEK_SECONDS) - MARKET_OPEN_OFFSET;
+            return mondayMidnight + ((dayIndex + 1) * DAY_SECONDS) + MARKET_OPEN_OFFSET;
+        } else {
+            // Friday: next Monday open
+            return getMonday(weekNumber + 1);
+        }
     }
 
     /// @notice Calculate percentage gap between two prices in basis points
@@ -61,30 +93,6 @@ library HoodGapMath {
     /// @return multiplier In basis points (10000 = 1.0x)
     function getVolatilityMultiplier(uint256 currentVolatility, uint256 avgVolatility) internal pure returns (uint256) {
         return (currentVolatility * 10000) / avgVolatility;
-    }
-
-    /// @notice Time decay multiplier: 1 + (1.5% × hours since Friday close)
-    /// @dev Returns 10000 (1.0x) during market hours or if oracle is fresh
-    /// @return multiplier In basis points, capped at 25000 (2.5x)
-    function getTimeDecayMultiplier(
-        uint256 fridayCloseTime,
-        uint256 mondayOpenTime,
-        uint256 oracleUpdatedAt,
-        uint256 currentTime,
-        uint256 holidayOverride
-    ) internal pure returns (uint256) {
-        if (holidayOverride > 0) return holidayOverride;
-
-        if (currentTime < fridayCloseTime || currentTime >= mondayOpenTime) {
-            return 10000;
-        }
-
-        if (currentTime - oracleUpdatedAt < 1 hours) return 10000;
-
-        uint256 hoursSinceClose = (currentTime - fridayCloseTime) / 1 hours;
-        uint256 multiplier = 10000 + (hoursSinceClose * 150);
-
-        return multiplier > 25000 ? 25000 : multiplier;
     }
 
     /// @notice Calculate binary payout: full coverage if gap >= threshold, else 0

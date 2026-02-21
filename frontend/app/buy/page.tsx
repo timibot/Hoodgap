@@ -13,7 +13,7 @@ export default function BuyPage() {
         <div>
           <h1 className="text-xl font-bold">Buy Insurance</h1>
           <p className="text-sm text-muted mt-1">
-            Protect your position against weekend gaps.
+            Protect your TSLA position against overnight price gaps.
           </p>
         </div>
         <FaucetButton />

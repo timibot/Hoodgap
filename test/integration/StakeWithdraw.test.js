@@ -6,6 +6,8 @@
  * Tests: stake(), requestWithdrawal (immediate + queued),
  *        cancelWithdrawalRequest(), processWithdrawalQueue(),
  *        getQueueStats(), getUserWithdrawals().
+ *
+ * Updated for all-gap model.
  */
 
 const { expect } = require("chai");
@@ -14,7 +16,7 @@ const { time }   = require("@nomicfoundation/hardhat-network-helpers");
 const {
   deploy,
   stakeThenBuy,
-  advanceToMonday,
+  advanceToOpen,
   USDC,
   STAKE_100K,
   COVERAGE_10K,
@@ -109,9 +111,8 @@ describe("Integration: StakeWithdraw", function () {
   describe("requestWithdrawal() — queued", function () {
     async function fullPoolCtx() {
       const ctx = await deploy();
-      // Stake exactly COVERAGE_10K so pool is fully locked after one policy
       await ctx.hoodgap.connect(ctx.staker).stake(COVERAGE_10K);
-      await ctx.usdc.mint(ctx.staker.address, COVERAGE_10K); // extra to refill
+      await ctx.usdc.mint(ctx.staker.address, COVERAGE_10K);
       await ctx.hoodgap.connect(ctx.buyer).buyPolicy(COVERAGE_10K, THRESHOLD_5);
       return ctx;
     }
@@ -136,7 +137,7 @@ describe("Integration: StakeWithdraw", function () {
       const balBefore = await ctx.usdc.balanceOf(ctx.staker.address);
       await ctx.hoodgap.connect(ctx.staker).requestWithdrawal(COVERAGE_10K);
       const balAfter  = await ctx.usdc.balanceOf(ctx.staker.address);
-      expect(balAfter).to.equal(balBefore); // unchanged
+      expect(balAfter).to.equal(balBefore);
     });
   });
 
@@ -180,7 +181,7 @@ describe("Integration: StakeWithdraw", function () {
 
   // ─── processWithdrawalQueue ───────────────────────────────────────────────────
   describe("processWithdrawalQueue()", function () {
-    it("processes requests and advances queueHead when liquidity arrives", async function () {
+    it("processes requests when liquidity arrives from settlement", async function () {
       const ctx = await deploy();
       await ctx.hoodgap.connect(ctx.staker).stake(COVERAGE_10K);
       await ctx.hoodgap.connect(ctx.buyer).buyPolicy(COVERAGE_10K, THRESHOLD_5);
@@ -189,9 +190,7 @@ describe("Integration: StakeWithdraw", function () {
       await ctx.hoodgap.connect(ctx.staker).requestWithdrawal(COVERAGE_10K);
 
       // Settle policy to free liquidity (no payout)
-      const settlementWeek = await ctx.hoodgap.getCurrentSettlementWeek();
-      await ctx.hoodgap.connect(ctx.owner).approveSettlement(settlementWeek, 10_000n, "test");
-      await advanceToMonday(ctx, PRICE_252);
+      await advanceToOpen(ctx, 4, PRICE_252);
       await ctx.hoodgap.settlePolicy(0n);
 
       // queueHead should have advanced past index 0

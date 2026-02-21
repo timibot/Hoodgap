@@ -3,12 +3,11 @@
 /**
  * test/integration/ReserveFund.test.js
  *
- * Tests: Reserve fund behaviour — accumulation from premiums,
+ * Tests: Reserve fund behaviour — accumulation from premiums (77% claim reserve),
  *        usage when pool is insufficient for payout, revert when
  *        both pool and reserve are insufficient.
  *
- * Complements MultipleGaps.test.js (which checks reserve accumulation)
- * and BuySettle.test.js (which covers normal settlement payouts).
+ * Updated for all-gap model (77/18/3/2 split).
  */
 
 const { expect } = require("chai");
@@ -17,10 +16,11 @@ const { time }   = require("@nomicfoundation/hardhat-network-helpers");
 const {
   deploy,
   stakeThenBuy,
-  advanceToMonday,
+  advanceToOpen,
   USDC,
   STAKE_100K,
   COVERAGE_10K,
+  MAX_COVERAGE,
   PRICE_250,
   PRICE_230,
   THRESHOLD_5,
@@ -41,12 +41,12 @@ describe("Integration: ReserveFund", function () {
     expect(reserveAfter).to.be.gt(0n);
   });
 
-  it("reserve cut is exactly 5% (RESERVE_CUT = 500 bp) of premium", async function () {
+  it("reserve cut is exactly 77% (CLAIM_RESERVE_BPS = 7700) of premium", async function () {
     const ctx = await deploy();
     await ctx.hoodgap.connect(ctx.staker).stake(STAKE_100K);
 
-    const premium = await ctx.hoodgap.calculatePremium(COVERAGE_10K);
-    const expectedReserve = (premium * 500n) / 10_000n;
+    const premium = await ctx.hoodgap["calculatePremium(uint256,uint256)"](COVERAGE_10K, THRESHOLD_5);
+    const expectedReserve = (premium * 7700n) / 10_000n;
 
     await ctx.hoodgap.connect(ctx.buyer).buyPolicy(COVERAGE_10K, THRESHOLD_5);
 
@@ -58,7 +58,6 @@ describe("Integration: ReserveFund", function () {
     const ctx = await deploy();
     await ctx.hoodgap.connect(ctx.staker).stake(STAKE_100K);
 
-    // Buy 3 policies
     await ctx.hoodgap.connect(ctx.buyer).buyPolicy(COVERAGE_10K, THRESHOLD_5);
     const reserve1 = await ctx.hoodgap.reserveBalance();
 
@@ -75,40 +74,27 @@ describe("Integration: ReserveFund", function () {
   // ─── Reserve used when pool insufficient ────────────────────────────────────
   it("uses reserve when totalStaked < payout coverage", async function () {
     const ctx = await deploy();
-    // Stake only slightly more than coverage so after premium splits
-    // the pool might be tight
     const stakeAmount = USDC(12_000);
     await ctx.usdc.mint(ctx.staker.address, stakeAmount);
     await ctx.hoodgap.connect(ctx.staker).stake(stakeAmount);
 
-    // Buy $10k coverage — premium is ~$1k–$2k (high util)
-    // Some premium goes to platform fee, some to reserve, rest to pool
     const policyId = await stakeThenBuy(ctx, COVERAGE_10K, THRESHOLD_5);
 
-    // Record reserve before settlement
     const reserveBefore = await ctx.hoodgap.reserveBalance();
     expect(reserveBefore).to.be.gt(0n);
 
     // Trigger gap payout (8% gap > 5% threshold)
-    const settlementWeek = await ctx.hoodgap.getCurrentSettlementWeek();
-    await ctx.hoodgap.connect(ctx.owner).approveSettlement(settlementWeek, 10_000n, "test");
-    await advanceToMonday(ctx, PRICE_230); // 8% drop
+    await advanceToOpen(ctx, 4, PRICE_230);
 
-    // Check if pool needs reserve assistance
     const totalStakedBefore = await ctx.hoodgap.totalStaked();
 
     if (totalStakedBefore < COVERAGE_10K) {
-      // Pool needs reserve help — this is the scenario we want
       await ctx.hoodgap.settlePolicy(policyId);
-
       const p = await ctx.hoodgap.policies(policyId);
       expect(p.paidOut).to.equal(true);
-
-      // Reserve should have decreased
       const reserveAfter = await ctx.hoodgap.reserveBalance();
       expect(reserveAfter).to.be.lt(reserveBefore);
     } else {
-      // Pool sufficient — just verify payout works normally
       await ctx.hoodgap.settlePolicy(policyId);
       const p = await ctx.hoodgap.policies(policyId);
       expect(p.paidOut).to.equal(true);
@@ -117,12 +103,8 @@ describe("Integration: ReserveFund", function () {
 
   it("emits ReserveUsed event when reserve supplements payout", async function () {
     const ctx = await deploy();
-
-    // Minimal stake to force reserve usage
-    // We'll stake just enough for a policy, then drain the pool
     await ctx.hoodgap.connect(ctx.staker).stake(COVERAGE_10K);
 
-    // Buy max coverage policy
     const tx = await ctx.hoodgap.connect(ctx.buyer).buyPolicy(COVERAGE_10K, THRESHOLD_5);
     const receipt = await tx.wait();
     const iface = ctx.hoodgap.interface;
@@ -131,31 +113,19 @@ describe("Integration: ReserveFund", function () {
       .find((e) => e && e.name === "PolicyPurchased");
     const policyId = log.args.policyId;
 
-    // Some premium went to platform fee, reserve, and pool
-    // The pool now has totalStaked = COVERAGE_10K (original stake, premium splits reduce it)
-    // Actually, premium is deducted from buyer, so totalStaked stays at COVERAGE_10K
-    // unless some premium returns to pool. Let's check.
+    await advanceToOpen(ctx, 4, PRICE_230);
 
-    const settlementWeek = await ctx.hoodgap.getCurrentSettlementWeek();
-    await ctx.hoodgap.connect(ctx.owner).approveSettlement(settlementWeek, 10_000n, "test");
-    await advanceToMonday(ctx, PRICE_230);
-
-    // If reserve usage is triggered, it will emit ReserveUsed
-    // This depends on whether totalStaked < coverage at settlement time
     await ctx.hoodgap.settlePolicy(policyId);
 
     const p = await ctx.hoodgap.policies(policyId);
     expect(p.settled).to.equal(true);
-    expect(p.paidOut).to.equal(true); // 8% gap > 5% threshold
+    expect(p.paidOut).to.equal(true);
   });
 
   // ─── Insufficient pool + reserve ────────────────────────────────────────────
   it("cannot buy policy exceeding pool liquidity", async function () {
     const ctx = await deploy();
-    // Stake only $5k
     await ctx.hoodgap.connect(ctx.staker).stake(USDC(5_000));
-
-    // Try to buy $10k coverage — exceeds pool
     await expect(ctx.hoodgap.connect(ctx.buyer).buyPolicy(COVERAGE_10K, THRESHOLD_5))
       .to.be.revertedWith("Insufficient pool liquidity");
   });
@@ -169,13 +139,10 @@ describe("Integration: ReserveFund", function () {
     expect(reserveBefore).to.be.gt(0n);
 
     // No gap — price stays same
-    const settlementWeek = await ctx.hoodgap.getCurrentSettlementWeek();
-    await ctx.hoodgap.connect(ctx.owner).approveSettlement(settlementWeek, 10_000n, "test");
-    await advanceToMonday(ctx, PRICE_250); // no gap
-
+    await advanceToOpen(ctx, 4, PRICE_250);
     await ctx.hoodgap.settlePolicy(policyId);
 
     const reserveAfter = await ctx.hoodgap.reserveBalance();
-    expect(reserveAfter).to.equal(reserveBefore); // unchanged
+    expect(reserveAfter).to.equal(reserveBefore);
   });
 });

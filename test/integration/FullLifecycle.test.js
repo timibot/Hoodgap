@@ -6,6 +6,8 @@
  * Tests: Complete end-to-end flows, access control (onlyOwner),
  *        volatility timelock, pause/unpause, treasury, getPoolStats,
  *        canBuyPolicy, getPolicies views.
+ *
+ * Updated for all-gap model.
  */
 
 const { expect } = require("chai");
@@ -14,7 +16,7 @@ const { time }   = require("@nomicfoundation/hardhat-network-helpers");
 const {
   deploy,
   stakeThenBuy,
-  advanceToMonday,
+  advanceToOpen,
   USDC,
   STAKE_100K,
   COVERAGE_10K,
@@ -30,10 +32,8 @@ describe("Integration: FullLifecycle", function () {
     const ctx      = await deploy();
     const policyId = await stakeThenBuy(ctx);
 
-    // Guardian approves, advance to Monday
-    const settlementWeek = await ctx.hoodgap.getCurrentSettlementWeek();
-    await ctx.hoodgap.connect(ctx.owner).approveSettlement(settlementWeek, 10_000n, "all clear");
-    await advanceToMonday(ctx, PRICE_252);
+    // Advance to market open with no gap
+    await advanceToOpen(ctx, 4, PRICE_252);
     await ctx.hoodgap.settlePolicy(policyId);
 
     // Pool liquidity freed — staker can withdraw
@@ -45,9 +45,7 @@ describe("Integration: FullLifecycle", function () {
     const ctx      = await deploy();
     const policyId = await stakeThenBuy(ctx);
 
-    const settlementWeek = await ctx.hoodgap.getCurrentSettlementWeek();
-    await ctx.hoodgap.connect(ctx.owner).approveSettlement(settlementWeek, 10_000n, "all clear");
-    await advanceToMonday(ctx, PRICE_230);
+    await advanceToOpen(ctx, 4, PRICE_230);
 
     // 8% gap on 5% threshold → binary payout = full coverage
     const holderBefore = await ctx.usdc.balanceOf(ctx.buyer.address);
@@ -84,13 +82,6 @@ describe("Integration: FullLifecycle", function () {
         .to.be.revertedWithCustomError(ctx.hoodgap, "OwnableUnauthorizedAccount");
     });
 
-    it("non-owner cannot queueHolidayMultiplier", async function () {
-      const ctx = await deploy();
-      const settlementWeek = await ctx.hoodgap.getCurrentSettlementWeek();
-      await expect(ctx.hoodgap.connect(ctx.alice).queueHolidayMultiplier(settlementWeek, 20_000n, "hack"))
-        .to.be.revertedWithCustomError(ctx.hoodgap, "OwnableUnauthorizedAccount");
-    });
-
     it("non-owner cannot setTreasury", async function () {
       const ctx = await deploy();
       await expect(ctx.hoodgap.connect(ctx.alice).setTreasury(ctx.alice.address))
@@ -99,7 +90,7 @@ describe("Integration: FullLifecycle", function () {
   });
 
   // ─── Volatility timelock ──────────────────────────────────────────────────────
-  describe("Volatility timelock (FRIEND #2)", function () {
+  describe("Volatility timelock", function () {
     it("queues change and emits VolatilityChangeQueued", async function () {
       const ctx = await deploy();
       await expect(ctx.hoodgap.connect(ctx.owner).queueVolatilityChange(6_000n, "elevated"))
@@ -113,7 +104,7 @@ describe("Integration: FullLifecycle", function () {
       const ctx = await deploy();
       await ctx.hoodgap.connect(ctx.owner).queueVolatilityChange(6_000n, "test");
       await expect(ctx.hoodgap.executeVolatilityChange())
-        .to.be.revertedWith("Timelock: 24h has not elapsed");
+        .to.be.revertedWith("Timelock not elapsed");
     });
 
     it("executes successfully after 24h", async function () {
@@ -147,7 +138,7 @@ describe("Integration: FullLifecycle", function () {
       const ctx = await deploy();
       await ctx.hoodgap.connect(ctx.owner).queueVolatilityChange(6_000n, "first");
       await expect(ctx.hoodgap.connect(ctx.owner).queueVolatilityChange(7_000n, "second"))
-        .to.be.revertedWith("Change already pending, cancel first");
+        .to.be.revertedWith("Change already pending");
     });
   });
 
@@ -175,9 +166,7 @@ describe("Integration: FullLifecycle", function () {
     it("settlement still works while paused (holders can claim)", async function () {
       const ctx      = await deploy();
       const policyId = await stakeThenBuy(ctx);
-      const settlementWeek = await ctx.hoodgap.getCurrentSettlementWeek();
-      await ctx.hoodgap.connect(ctx.owner).approveSettlement(settlementWeek, 10_000n, "test");
-      await advanceToMonday(ctx, PRICE_252);
+      await advanceToOpen(ctx, 4, PRICE_252);
       await ctx.hoodgap.pause();
       await expect(ctx.hoodgap.settlePolicy(policyId)).to.not.be.reverted;
     });
@@ -199,14 +188,14 @@ describe("Integration: FullLifecycle", function () {
         .to.be.revertedWith("Treasury cannot be zero address");
     });
 
-    it("platform fee routes to new treasury after update", async function () {
+    it("protocol fee routes to new treasury after update", async function () {
       const ctx = await deploy();
       await ctx.hoodgap.connect(ctx.owner).setTreasury(ctx.alice.address);
       await ctx.hoodgap.connect(ctx.staker).stake(STAKE_100K);
-      const premium     = await ctx.hoodgap.calculatePremium(COVERAGE_10K);
-      const platformFee = (premium * 200n) / 10_000n;
+      const premium     = await ctx.hoodgap["calculatePremium(uint256,uint256)"](COVERAGE_10K, THRESHOLD_5);
+      const protocolFee = (premium * 300n) / 10_000n;
       await expect(() => ctx.hoodgap.connect(ctx.buyer).buyPolicy(COVERAGE_10K, THRESHOLD_5))
-        .to.changeTokenBalance(ctx.usdc, ctx.alice, platformFee);
+        .to.changeTokenBalance(ctx.usdc, ctx.alice, protocolFee);
     });
   });
 
@@ -243,15 +232,6 @@ describe("Integration: FullLifecycle", function () {
       expect(canBuy).to.equal(true);
       expect(reason).to.equal("Ready to purchase");
       expect(premium).to.be.gt(0n);
-    });
-
-    it("canBuyPolicy returns false with premium when allowance is zero", async function () {
-      const ctx = await deploy();
-      await ctx.hoodgap.connect(ctx.staker).stake(STAKE_100K);
-      await ctx.usdc.connect(ctx.buyer).approve(await ctx.hoodgap.getAddress(), 0n);
-      const [canBuy, , premium] = await ctx.hoodgap.canBuyPolicy(ctx.buyer.address, COVERAGE_10K, THRESHOLD_5);
-      expect(canBuy).to.equal(false);
-      expect(premium).to.be.gt(0n); // still quotes premium
     });
 
     it("getPolicies batch-fetches multiple policies in order", async function () {

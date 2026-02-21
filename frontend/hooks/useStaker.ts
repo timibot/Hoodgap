@@ -31,13 +31,14 @@ export function usePoolStats(): {
       const raw = await hoodgapReadOnly.getPoolStats();
       const totalStaked = fromUSDC(raw[0]);
       const totalCoverage = fromUSDC(raw[1]);
+      const utilization = Number(raw[2]) / 100; // raw is basis points
 
       setStats({
         totalStaked,
         totalCoverage,
-        reserveBalance: fromUSDC(raw[2]),
-        utilization: totalStaked > 0 ? (totalCoverage / totalStaked) * 100 : 0,
-        policyCount: Number(raw[4]),
+        reserveBalance: fromUSDC(raw[3]),
+        utilization,
+        policyCount: Number(raw[5]),
         freeLiquidity: Math.max(0, totalStaked - totalCoverage),
       });
     } catch (err) {

@@ -1,4 +1,4 @@
-import { MAX_POLICY_COVERAGE, MIN_THRESHOLD, MAX_THRESHOLD } from "./constants";
+import { MAX_POLICY_COVERAGE } from "./constants";
 
 export interface ValidationResult {
   valid: boolean;
@@ -20,11 +20,11 @@ export function validateCoverage(amount: number): ValidationResult {
 
 export function validateThreshold(percent: number): ValidationResult {
   const bps = percent * 100;
-  if (bps < MIN_THRESHOLD) {
-    return { valid: false, error: `Minimum threshold is ${MIN_THRESHOLD / 100}%` };
+  if (bps < 500) {
+    return { valid: false, error: "Minimum threshold is 5%" };
   }
-  if (bps > MAX_THRESHOLD) {
-    return { valid: false, error: `Maximum threshold is ${MAX_THRESHOLD / 100}%` };
+  if (bps > 1000) {
+    return { valid: false, error: "Maximum threshold is 10%" };
   }
   return { valid: true };
 }

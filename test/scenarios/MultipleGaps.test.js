@@ -6,16 +6,19 @@
  * Real-world scenario: Multiple policies in the same week.
  * Some gap, some don't. Different thresholds. Reserve usage.
  * Validates accounting integrity across many policies.
+ *
+ * Updated for all-gap model.
  */
 
 const { expect } = require("chai");
 const { ethers } = require("hardhat");
 const {
   deploy,
-  advanceToMonday,
+  advanceToOpen,
   USDC,
   STAKE_100K,
   COVERAGE_10K,
+  MAX_COVERAGE,
   PRICE_230,
   PRICE_252,
   THRESHOLD_5,
@@ -25,7 +28,7 @@ const {
 describe("Scenario: MultipleGaps", function () {
   /**
    * Pool: $100k staked
-   * 3 policies bought same week:
+   * 3 policies bought same gap (Monday):
    *   Policy 0: $10k, 5% threshold  → 8% gap → PAYOUT
    *   Policy 1: $10k, 10% threshold → 8% gap → no payout (below threshold)
    *   Policy 2: $10k, 5% threshold  → 8% gap → PAYOUT
@@ -35,11 +38,8 @@ describe("Scenario: MultipleGaps", function () {
     const ctx = await deploy();
     await ctx.hoodgap.connect(ctx.staker).stake(STAKE_100K);
 
-    // Policy 0: threshold 5%
     await ctx.hoodgap.connect(ctx.buyer).buyPolicy(COVERAGE_10K, THRESHOLD_5);
-    // Policy 1: threshold 10% (gap won't trigger)
     await ctx.hoodgap.connect(ctx.buyer).buyPolicy(COVERAGE_10K, THRESHOLD_10);
-    // Policy 2: threshold 5%
     await ctx.hoodgap.connect(ctx.alice).buyPolicy(COVERAGE_10K, THRESHOLD_5);
 
     return ctx;
@@ -48,9 +48,7 @@ describe("Scenario: MultipleGaps", function () {
   // ─── Selective payout ─────────────────────────────────────────────────────────
   it("8% gap: 5%-threshold policies pay out, 10%-threshold does not", async function () {
     const ctx = await multiPolicySetup();
-    const settlementWeek = await ctx.hoodgap.getCurrentSettlementWeek();
-    await ctx.hoodgap.connect(ctx.owner).approveSettlement(settlementWeek, 10_000n, "test");
-    await advanceToMonday(ctx, PRICE_230); // 8% gap
+    await advanceToOpen(ctx, 4, PRICE_230); // 8% gap
 
     await ctx.hoodgap.settlePolicy(0n);
     await ctx.hoodgap.settlePolicy(1n);
@@ -68,9 +66,7 @@ describe("Scenario: MultipleGaps", function () {
   // ─── Accounting integrity ─────────────────────────────────────────────────────
   it("totalCoverage drops to 0 after all policies settled", async function () {
     const ctx = await multiPolicySetup();
-    const settlementWeek = await ctx.hoodgap.getCurrentSettlementWeek();
-    await ctx.hoodgap.connect(ctx.owner).approveSettlement(settlementWeek, 10_000n, "test");
-    await advanceToMonday(ctx, PRICE_230);
+    await advanceToOpen(ctx, 4, PRICE_230);
 
     await ctx.hoodgap.settlePolicy(0n);
     await ctx.hoodgap.settlePolicy(1n);
@@ -84,38 +80,32 @@ describe("Scenario: MultipleGaps", function () {
 
     const [stakedBefore] = await ctx.hoodgap.getPoolStats();
 
-    const settlementWeek = await ctx.hoodgap.getCurrentSettlementWeek();
-    await ctx.hoodgap.connect(ctx.owner).approveSettlement(settlementWeek, 10_000n, "test");
-    await advanceToMonday(ctx, PRICE_230);
+    await advanceToOpen(ctx, 4, PRICE_230);
 
     await ctx.hoodgap.settlePolicy(0n);
     await ctx.hoodgap.settlePolicy(1n);
     await ctx.hoodgap.settlePolicy(2n);
 
     const [stakedAfter] = await ctx.hoodgap.getPoolStats();
-    // Policies 0 and 2: 8% gap on 5% threshold → full coverage each
     expect(stakedBefore - stakedAfter).to.equal(COVERAGE_10K * 2n);
   });
 
   it("binary payouts go to correct holders", async function () {
     const ctx = await multiPolicySetup();
-    const settlementWeek = await ctx.hoodgap.getCurrentSettlementWeek();
-    await ctx.hoodgap.connect(ctx.owner).approveSettlement(settlementWeek, 10_000n, "test");
-    await advanceToMonday(ctx, PRICE_230);
+    await advanceToOpen(ctx, 4, PRICE_230);
 
     const buyerBefore = await ctx.usdc.balanceOf(ctx.buyer.address);
     const aliceBefore = await ctx.usdc.balanceOf(ctx.alice.address);
 
-    await ctx.hoodgap.settlePolicy(0n); // buyer — full coverage
-    await ctx.hoodgap.settlePolicy(1n); // buyer (no payout — below 10% threshold)
-    await ctx.hoodgap.settlePolicy(2n); // alice — full coverage
+    await ctx.hoodgap.settlePolicy(0n);
+    await ctx.hoodgap.settlePolicy(1n);
+    await ctx.hoodgap.settlePolicy(2n);
 
-    // 8% gap on 5% threshold → full coverage each
     const buyerGain = (await ctx.usdc.balanceOf(ctx.buyer.address)) - buyerBefore;
     const aliceGain = (await ctx.usdc.balanceOf(ctx.alice.address)) - aliceBefore;
 
-    expect(buyerGain).to.equal(COVERAGE_10K); // only policy 0 paid (not 1)
-    expect(aliceGain).to.equal(COVERAGE_10K); // policy 2
+    expect(buyerGain).to.equal(COVERAGE_10K);
+    expect(aliceGain).to.equal(COVERAGE_10K);
   });
 
   // ─── Reserve coverage ─────────────────────────────────────────────────────────
@@ -124,8 +114,7 @@ describe("Scenario: MultipleGaps", function () {
 
     const reserve = await ctx.hoodgap.reserveBalance();
     expect(reserve).to.be.gt(0n);
-    // Reserve should be ≥ 5% of (3 × min premium) – just verify it's meaningful
-    const minReserve = USDC(3) / 100n; // tiny floor
+    const minReserve = USDC(3) / 100n;
     expect(reserve).to.be.gte(minReserve);
   });
 
@@ -134,17 +123,15 @@ describe("Scenario: MultipleGaps", function () {
     const ctx = await deploy();
     await ctx.hoodgap.connect(ctx.staker).stake(COVERAGE_10K * 2n);
 
-    // First two buys succeed
     await ctx.hoodgap.connect(ctx.buyer).buyPolicy(COVERAGE_10K, THRESHOLD_5);
     await ctx.hoodgap.connect(ctx.buyer).buyPolicy(COVERAGE_10K, THRESHOLD_5);
 
-    // Pool is now fully locked — third buy fails
     await expect(ctx.hoodgap.connect(ctx.alice).buyPolicy(COVERAGE_10K, THRESHOLD_5))
       .to.be.revertedWith("Insufficient pool liquidity");
   });
 
-  // ─── No-gap week: all premiums stay in pool ───────────────────────────────────
-  it("no-gap week: all policies settled, totalStaked unchanged", async function () {
+  // ─── No-gap day: all premiums stay in pool ───────────────────────────────────
+  it("no-gap day: all policies settled, totalStaked unchanged", async function () {
     const ctx = await deploy();
     await ctx.hoodgap.connect(ctx.staker).stake(STAKE_100K);
 
@@ -153,14 +140,11 @@ describe("Scenario: MultipleGaps", function () {
 
     const [stakedBefore] = await ctx.hoodgap.getPoolStats();
 
-    const settlementWeek = await ctx.hoodgap.getCurrentSettlementWeek();
-    await ctx.hoodgap.connect(ctx.owner).approveSettlement(settlementWeek, 10_000n, "test");
-    await advanceToMonday(ctx, PRICE_252);
+    await advanceToOpen(ctx, 4, PRICE_252);
     await ctx.hoodgap.settlePolicy(0n);
     await ctx.hoodgap.settlePolicy(1n);
 
     const [stakedAfter] = await ctx.hoodgap.getPoolStats();
-    // staked shouldn't decrease (no payouts) — premiums stay in pool
     expect(stakedAfter).to.equal(stakedBefore);
   });
 });
