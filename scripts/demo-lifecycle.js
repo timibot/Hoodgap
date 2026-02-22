@@ -85,14 +85,17 @@ async function main() {
 
   divider();
 
-  // ── Step 3: Guardian approves settlement for this week ───────────
+  // ── Step 3: Guardian approves settlement ──────────────────────────
 
   console.log("\n🛡️  STEP 3: Guardian approves settlement...\n");
 
-  const settlementWeek = await hoodgap.getCurrentSettlementWeek();
-  console.log(`  Settlement week: ${settlementWeek}`);
+  const policyWeek = await hoodgap.getCurrentSettlementWeek();
+  // Legacy buyPolicy sets gapDay=4 (Friday→Monday), so settlement
+  // approval is based on gapWeek + 1 (the NEXT week's Monday open)
+  const approvalWeek = policyWeek + 1n;
+  console.log(`  Policy week: ${policyWeek}, approval week: ${approvalWeek}`);
 
-  await hoodgap.approveSettlement(settlementWeek, 10000, "No split — normal week");
+  await hoodgap.approveSettlement(approvalWeek, 10000, "No split — normal week");
   console.log("  ✅ Settlement approved (1.0x ratio, no split)");
 
   divider();
@@ -144,8 +147,8 @@ async function main() {
 
   console.log("\n⏰ STEP 5: Time-traveling to Monday...\n");
 
-  // Get the exact Monday 9:30am EST timestamp from the contract
-  const mondayTimestamp = await hoodgap.getMonday(settlementWeek);
+  // For gapDay=4 (Friday→Monday), nextMarketOpen = getMonday(gapWeek + 1)
+  const mondayTimestamp = await hoodgap.getMonday(approvalWeek);
   const targetTime = Number(mondayTimestamp) + 60; // 1 minute after Monday open
 
   const currentBlock = await hre.ethers.provider.getBlock("latest");
@@ -165,9 +168,7 @@ async function main() {
   await oracle.update(toOracle(mondayPrice), newBlock.timestamp);
   console.log(`  📉 Oracle updated: $${fridayPrice.toFixed(2)} → $${mondayPrice.toFixed(2)} (-8% gap)`);
 
-  // Update week timing
-  await hoodgap.updateWeekTiming();
-  console.log("  📅 Week timing refreshed");
+  // (week timing updates automatically based on block timestamp)
 
   divider();
 
@@ -176,7 +177,7 @@ async function main() {
   console.log("\n⚖️  STEP 6: Settling policy...\n");
 
   const policy = await hoodgap.policies(policyId);
-  const fridayPriceOracle = Number(policy.fridayClose) / 10 ** ORACLE_DECIMALS;
+  const fridayPriceOracle = Number(policy.closePrice) / 10 ** ORACLE_DECIMALS;
   const gap = Math.abs(mondayPrice - fridayPriceOracle) / fridayPriceOracle * 100;
 
   console.log(`  Friday close:  $${fridayPriceOracle.toFixed(2)}`);

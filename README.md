@@ -1,14 +1,37 @@
 # HoodGap Protocol
 
-> **Weekend Gap Insurance for Stock Positions** — Protect your portfolio against overnight price movements when traditional markets are closed.
+> **Overnight Gap Insurance for Stock Positions** — Protect your portfolio against overnight price gaps when markets are closed.
 
 [![Solidity](https://img.shields.io/badge/Solidity-0.8.20-blue)](https://soliditylang.org)
+[![OpenZeppelin](https://img.shields.io/badge/OpenZeppelin-5.0-blueviolet)](https://openzeppelin.com/contracts)
+[![Chainlink](https://img.shields.io/badge/Chainlink-Oracle-375BD2)](https://chain.link)
 [![License: MIT](https://img.shields.io/badge/License-MIT-green.svg)](LICENSE)
 [![Built on Robinhood Chain](https://img.shields.io/badge/Robinhood%20Chain-Testnet-purple)](https://chain.robinhood.com)
+[![Tests](https://img.shields.io/badge/Tests-Passing-brightgreen)](#testing)
+
+---
+
+## Table of Contents
+
+- [What is HoodGap?](#what-is-hoodgap)
+- [How It Works](#how-it-works)
+- [Quick Start](#quick-start)
+- [Architecture](#architecture)
+- [Smart Contract API](#smart-contract-api)
+- [Premium Pricing Model](#premium-pricing-model)
+- [Security](#security)
+- [Testing](#testing)
+- [Network Configuration](#network-configuration)
+- [Roadmap](#roadmap)
+- [Contributing](#contributing)
+- [Disclaimer](#disclaimer)
+- [License](#license)
+
+---
 
 ## What is HoodGap?
 
-HoodGap is a decentralized insurance protocol that lets stock investors hedge against **weekend gap risk** — the price difference between Friday's close and Monday's open.
+HoodGap is a decentralized insurance protocol that lets stock investors hedge against **overnight gap risk** — the price difference between one session's close and the next session's open. Built on the Robinhood Chain and powered by Chainlink oracles, it provides trustless, on-chain coverage with transparent pricing.
 
 | Role | What you do | What you earn |
 |------|-------------|---------------|
@@ -19,11 +42,15 @@ HoodGap is a decentralized insurance protocol that lets stock investors hedge ag
 ### How It Works
 
 ```
-Friday 4pm    → Oracle records Tesla closing price
-Weekend       → Users buy gap insurance policies  
-Monday 9:30am → Oracle updates with opening price
-Monday+       → Policies settle: gap ≥ threshold = payout
+Market Close  → Oracle records closing price
+Off-hours     → Users buy gap insurance policies  
+Market Open   → Oracle updates with opening price
+Settlement    → Policies settle: gap ≥ threshold = payout
 ```
+
+**Binary payout model:** If the overnight gap exceeds the buyer's chosen threshold, they receive their full coverage amount. If not, the premium is distributed to stakers.
+
+---
 
 ## Quick Start
 
@@ -57,7 +84,7 @@ npm run node
 npm run deploy:local
 
 # Terminal 3: Seed the pool with test liquidity
-npx hardhat run scripts/seed-liquidity.js --network localhost
+npm run seed
 
 # Terminal 4: Start frontend
 cd frontend && npm run dev
@@ -66,13 +93,13 @@ cd frontend && npm run dev
 ### 4. Run the Full Demo (localhost)
 
 ```bash
-npx hardhat run scripts/demo-lifecycle.js --network localhost
+npm run demo
 ```
 
 This time-travel demo walks through the complete lifecycle:
 1. Deploy & seed pool with $100k USDC
 2. Buy a $500 gap insurance policy (5% threshold)
-3. Fast-forward to Monday with a simulated 8% gap
+3. Fast-forward to next open with a simulated 8% gap
 4. Settle the policy → full coverage payout
 5. Staker withdraws remaining balance
 
@@ -83,8 +110,10 @@ This time-travel demo walks through the complete lifecycle:
 npm run deploy:testnet
 
 # Verify contracts on explorer
-npx hardhat run scripts/verify.js --network robinhoodTestnet
+npm run verify:testnet
 ```
+
+---
 
 ## Architecture
 
@@ -107,17 +136,28 @@ scripts/
 ├── verify.js                 # Explorer verification
 ├── seed-liquidity.js         # Seed pool with test USDC
 ├── demo-lifecycle.js         # Full lifecycle time-travel demo
+├── demo-split.js             # Split-ratio settlement demo
 ├── guardian-operations.js    # Guardian workflow helpers
-└── simulate-weekend.js       # Weekend price simulation
+├── simulate-weekend.js       # Weekend price simulation
+├── gap-analysis.js           # Gap analysis tooling
+└── refresh-oracle.js         # Manual oracle refresh utility
+
+test/
+├── unit/                     # 6 unit test suites
+├── integration/              # 6 integration test suites
+├── scenarios/                # 4 scenario-based test suites
+└── helpers/                  # Shared test utilities
 
 docs/
 ├── ARCHITECTURE.md           # System design & data structures
 ├── MATHEMATICAL_MODEL.md     # Premium formulas & calibration (900+ lines)
 ├── BUSINESS_LOGIC.md         # Decision trees for all flows
 ├── SECURITY.md               # Threat model & attack analysis
-├── GUARDIAN_MANUAL.md         # Guardian operations guide
+├── GUARDIAN_MANUAL.md        # Guardian operations guide
 └── API.md                    # Contract function reference
 ```
+
+---
 
 ## Smart Contract API
 
@@ -149,6 +189,8 @@ docs/
 | `canBuyPolicy(user, coverage, threshold)` | canBuy, reason, estimatedPremium |
 | `getQueueStats()` | head, length, pending, dollarAhead, freeLiquidity |
 
+---
+
 ## Premium Pricing Model
 
 ```
@@ -165,14 +207,79 @@ Premiums are bounded: **1% floor** to **95% ceiling** of coverage.
 
 See [docs/MATHEMATICAL_MODEL.md](docs/MATHEMATICAL_MODEL.md) for complete derivations, worked examples, and calibration data.
 
-## Network Configuration
+---
 
-| Network | Chain ID | RPC |
-|---------|----------|-----|
-| Hardhat Local | 31337 | `http://127.0.0.1:8545` |
-| Robinhood Testnet | 46630 | `https://rpc.testnet.chain.robinhood.com` |
+## Security
+
+Security is a first-class priority for HoodGap. The protocol is designed with multiple layers of defense-in-depth, following industry best practices from OpenZeppelin and the wider DeFi security community.
+
+### Smart Contract Hardening
+
+| Protection | Implementation |
+|------------|---------------|
+| **Reentrancy Guard** | All state-changing functions use OpenZeppelin's `ReentrancyGuard` modifier |
+| **Checks-Effects-Interactions** | State is updated **before** any external call (e.g., USDC transfer) |
+| **Integer Overflow/Underflow** | Solidity 0.8.20 built-in SafeMath — all arithmetic auto-reverts on overflow |
+| **Access Control** | `onlyOwner` (guardian) on all privileged functions via OpenZeppelin `Ownable` |
+| **Pausability** | Emergency `pause()` / `unpause()` via OpenZeppelin `Pausable` to halt all operations |
+
+### Oracle Security
+
+| Protection | Detail |
+|------------|--------|
+| **Staleness checks** | Policy purchase requires oracle updated within **1 hour**; premium calculation requires **24-hour** freshness |
+| **Settlement timing** | Settlement blocked until oracle provides data **after** the next market open |
+| **Time decay premium** | Stale oracle data increases premiums automatically, discouraging purchases on unreliable data |
+| **Chainlink integration** | Uses battle-tested Chainlink `AggregatorV3Interface` price feeds |
+
+### Guardian Safeguards
+
+The guardian (admin) role has carefully scoped powers with built-in guardrails:
+
+| ✅ Can | ❌ Cannot |
+|--------|-----------|
+| Pause / unpause the contract | Withdraw staker funds |
+| Approve weekly settlements | Mint or transfer USDC |
+| Queue volatility changes (*24h timelock*) | Modify the premium formula |
+| Set holiday multipliers (*24h timelock*) | Change contract code |
+| | Bypass 24-hour timelocks |
+
+> **48-hour failsafe:** If the guardian is unresponsive, settlements auto-approve after 48 hours — the protocol is never permanently blocked.
+
+### Attack Resistance
+
+| Attack Vector | Defense |
+|---------------|---------|
+| **Flash Loans** | Policies require close→open time passage — cannot profit in a single transaction |
+| **Front-Running** | On-chain deterministic pricing; front-runner pays the same or marginally higher premium |
+| **Sybil Attacks** | Dynamic pricing applies identically regardless of address count — no benefit to splitting |
+| **Reentrancy** | `ReentrancyGuard` + USDC has no receive hooks (unlike ERC-777) |
+| **Oracle Manipulation** | Multi-layer staleness checks + timing requirements block stale/fake price data |
+| **DoS (Queue Flooding)** | `processWithdrawalQueue` is gas-bounded (max 20–50 per call); policies settle individually |
+| **Over-utilization** | Hard cap: `require(totalCoverage + coverage <= totalStaked)` — 100% utilization is the ceiling |
+
+### Emergency Procedures
+
+| Scenario | Protocol Response |
+|----------|-------------------|
+| **Pool insolvency** | Reserve balance absorbs shortfall → if insufficient, settlement reverts until capital is added |
+| **Oracle failure** | Operations halt gracefully (staleness checks revert) → guardian pauses → await recovery |
+| **Guardian key compromise** | `transferOwnership()` to new address; 48h failsafe ensures settlements proceed |
+
+### Recommendations for Operators
+
+- Use a **multisig** (e.g., Gnosis Safe) for the guardian address
+- Store keys in a **hardware wallet**
+- Monitor oracle health and pool utilization via the admin dashboard
+- Consider a third-party audit before mainnet launch
+
+> 📄 **Full threat model & attack scenarios:** [docs/SECURITY.md](docs/SECURITY.md)
+
+---
 
 ## Testing
+
+The protocol has a comprehensive test suite spanning unit, integration, and scenario tests.
 
 ```bash
 # Run all tests
@@ -185,15 +292,24 @@ REPORT_GAS=true npm test
 npx hardhat test test/unit/PremiumCalculation.test.js
 ```
 
-## Security
+### Test Structure
 
-- **ReentrancyGuard** on all state-changing functions
-- **24-hour timelocks** on guardian parameter changes
-- **48-hour failsafe** auto-approves settlement if guardian is unresponsive
-- **Oracle staleness checks** (1h for policy purchase, 24h for premium calc)
-- **Checks-Effects-Interactions** pattern throughout
+| Suite | Coverage |
+|-------|----------|
+| **Unit** (6 suites) | Premium calculation, gap math, staking, withdrawal queue, timing logic, access control |
+| **Integration** (6 suites) | Full policy lifecycle, settlement flows, split ratios, multi-user scenarios |
+| **Scenarios** (4 suites) | Edge cases, extreme utilization, market holidays, oracle failures |
 
-See [docs/SECURITY.md](docs/SECURITY.md) for full threat model.
+---
+
+## Network Configuration
+
+| Network | Chain ID | RPC |
+|---------|----------|-----|
+| Hardhat Local | 31337 | `http://127.0.0.1:8545` |
+| Robinhood Testnet | 46630 | `https://rpc.testnet.chain.robinhood.com` |
+
+---
 
 ## Roadmap
 
@@ -229,6 +345,31 @@ Each stock pool is fully independent with its own:
 - **Governance** — decentralized guardian election via token voting
 - **Options-style products** — directional gap bets (bull/bear)
 
+---
+
+## Contributing
+
+Contributions are welcome! To get started:
+
+1. Fork the repository
+2. Create a feature branch: `git checkout -b feature/your-feature`
+3. Commit your changes: `git commit -m "feat: add your feature"`
+4. Push to the branch: `git push origin feature/your-feature`
+5. Open a Pull Request
+
+Please ensure:
+- All existing tests pass (`npm test`)
+- New features include test coverage
+- Solidity code follows the project's `.solhint.json` and `.prettierrc` style
+
+---
+
+## Disclaimer
+
+> ⚠️ **This software is provided "as is", without warranty of any kind.** HoodGap is experimental DeFi software currently deployed on testnet only. It has not been audited by an independent third party. Do not use this protocol with funds you cannot afford to lose. The authors and contributors are not liable for any losses incurred through the use of this software.
+
+---
+
 ## License
 
-MIT
+MIT — see [LICENSE](LICENSE) for details.
