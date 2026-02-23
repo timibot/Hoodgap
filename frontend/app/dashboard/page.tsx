@@ -20,9 +20,12 @@ export default function DashboardPage() {
 
       {stats && (
         <div className="space-y-3">
-          <h2 className="text-sm font-semibold text-muted uppercase tracking-wider">
-            Utilization
-          </h2>
+          <div className="flex flex-row justify-between items-end">
+            <h2 className="text-sm font-semibold text-muted uppercase tracking-wider">
+              Utilization
+            </h2>
+            <span className="font-mono font-semibold text-fg">{stats.utilization.toFixed(2)}%</span>
+          </div>
           <div className="h-2 bg-surface-alt rounded-full overflow-hidden">
             <div
               className="h-full bg-fg rounded-full transition-all duration-500"
@@ -31,7 +34,6 @@ export default function DashboardPage() {
           </div>
           <div className="flex justify-between text-xs text-muted">
             <span>0%</span>
-            <span className="font-mono font-semibold text-fg">{stats.utilization.toFixed(1)}%</span>
             <span>100%</span>
           </div>
           <div className="grid grid-cols-2 gap-3 pt-2">

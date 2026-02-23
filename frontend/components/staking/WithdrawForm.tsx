@@ -64,7 +64,7 @@ export default function WithdrawForm() {
         <div className="text-2xl font-bold font-mono mt-1">{formatDollars(stakedUsd)}</div>
         {stats && (
           <div className="text-xs text-muted mt-1">
-            Utilization {stats.utilization.toFixed(1)}% · Free {formatDollars(stats.freeLiquidity)}
+            Utilization {stats.utilization.toFixed(2)}% · Free {formatDollars(stats.freeLiquidity)}
           </div>
         )}
       </div>

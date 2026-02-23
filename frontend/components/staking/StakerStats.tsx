@@ -14,7 +14,7 @@ export default function StakerStats() {
     { label: "Total Staked", value: formatDollars(stats.totalStaked) },
     { label: "Total Coverage", value: formatDollars(stats.totalCoverage) },
     { label: "Free Liquidity", value: formatDollars(stats.freeLiquidity) },
-    { label: "Utilization", value: `${stats.utilization.toFixed(1)}%` },
+    { label: "Utilization", value: `${stats.utilization.toFixed(2)}%` },
     { label: "Reserve", value: formatDollars(stats.reserveBalance) },
     { label: "Policies", value: stats.policyCount.toString() },
   ];

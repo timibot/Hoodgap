@@ -4,80 +4,133 @@ import { useState, useEffect } from "react";
 
 export interface SettlementTimeline {
   settlementWeek: number;
-  fridayClose: Date;
-  mondayOpen: Date;
+  targetClose: Date;
+  targetOpen: Date;
   daysUntilClose: number;
   hoursUntilClose: number;
-  isThisWeek: boolean;
+  isGapActive: boolean;
   displayLabel: string;
+  closeLabel: string;
+  openLabel: string;
   loading: boolean;
 }
 
-// Mirrors HoodGapMath.sol constants
-const REFERENCE_WEEK = 1609770600;
+// Mirrors HoodGapMath.sol logic strictly
+const REFERENCE_WEEK_TS = 1609770600;
 const WEEK_SECONDS = 604800;
-const WEEKEND_DURATION = 279000;
+const DAY_SECONDS = 86400;
+const MARKET_CLOSE_OFFSET = 75600; // 21:00 UTC
+const MARKET_OPEN_OFFSET = 52200;  // 14:30 UTC
 
 function getWeekNumber(timestamp: number): number {
-  return Math.floor((timestamp - REFERENCE_WEEK) / WEEK_SECONDS);
+  return Math.floor((timestamp - REFERENCE_WEEK_TS) / WEEK_SECONDS);
 }
 
 function getMonday(weekNumber: number): number {
-  return REFERENCE_WEEK + weekNumber * WEEK_SECONDS;
+  return REFERENCE_WEEK_TS + (weekNumber * WEEK_SECONDS);
 }
 
-function getFriday(weekNumber: number): number {
-  return getMonday(weekNumber) - WEEKEND_DURATION;
+function getMarketClose(weekNumber: number, dayIndex: number): number {
+  const mondayMidnight = getMonday(weekNumber) - MARKET_OPEN_OFFSET;
+  return mondayMidnight + dayIndex * DAY_SECONDS + MARKET_CLOSE_OFFSET;
+}
+
+function getNextMarketOpen(weekNumber: number, dayIndex: number): number {
+  if (dayIndex < 4) {
+    const mondayMidnight = getMonday(weekNumber) - MARKET_OPEN_OFFSET;
+    return mondayMidnight + (dayIndex + 1) * DAY_SECONDS + MARKET_OPEN_OFFSET;
+  } else {
+    return getMonday(weekNumber + 1);
+  }
 }
 
 export function useSettlementTimeline(): SettlementTimeline {
   const [timeline, setTimeline] = useState<SettlementTimeline>({
     settlementWeek: 0,
-    fridayClose: new Date(0),
-    mondayOpen: new Date(0),
+    targetClose: new Date(0),
+    targetOpen: new Date(0),
     daysUntilClose: 0,
     hoursUntilClose: 0,
-    isThisWeek: false,
+    isGapActive: false,
     displayLabel: "",
+    closeLabel: "Close",
+    openLabel: "Open",
     loading: true,
   });
 
   useEffect(() => {
     function calculate() {
       const now = Math.floor(Date.now() / 1000);
-      const currentWeek = getWeekNumber(now);
-      const mondayThisWeek = getMonday(currentWeek);
+      const weekNumber = getWeekNumber(now);
 
-      // Past Monday open → policies cover next weekend
-      const isThisWeek = now < mondayThisWeek;
-      const settlementWeek = isThisWeek ? currentWeek : currentWeek + 1;
+      let targetCloseTs = 0;
+      let targetOpenTs = 0;
+      let dayName = "";
+      let nextDayName = "";
 
-      const fridayCloseTs = getFriday(settlementWeek);
-      const mondayOpenTs = getMonday(settlementWeek);
+      const days = ["Monday", "Tuesday", "Wednesday", "Thursday", "Friday"];
+      const nextDays = ["Tuesday", "Wednesday", "Thursday", "Friday", "Monday"];
 
-      const fridayClose = new Date(fridayCloseTs * 1000);
-      const mondayOpen = new Date(mondayOpenTs * 1000);
+      for (let i = 0; i <= 4; i++) {
+        const gapOpen = getNextMarketOpen(weekNumber, i);
+        if (now < gapOpen) {
+          targetCloseTs = getMarketClose(weekNumber, i);
+          targetOpenTs = gapOpen;
+          dayName = days[i];
+          nextDayName = nextDays[i];
+          break;
+        }
+      }
 
-      const msUntilClose = fridayClose.getTime() - Date.now();
+      const targetClose = new Date(targetCloseTs * 1000);
+      const targetOpen = new Date(targetOpenTs * 1000);
+
+      const msUntilClose = targetClose.getTime() - Date.now();
+      const isGapActive = msUntilClose <= 0;
+      
       const daysUntilClose = Math.max(0, Math.ceil(msUntilClose / (1000 * 60 * 60 * 24)));
       const hoursUntilClose = Math.max(0, Math.ceil(msUntilClose / (1000 * 60 * 60)));
 
-      const dateOpts: Intl.DateTimeFormatOptions = { month: "short", day: "numeric" };
-      const fridayStr = fridayClose.toLocaleDateString("en-US", dateOpts);
-      const mondayStr = mondayOpen.toLocaleDateString("en-US", dateOpts);
+      // If gap is tomorrow, say "Tomorrow" instead of "Tuesday"
+      const currentDayOpts: Intl.DateTimeFormatOptions = { weekday: 'long' };
+      const currentDayName = new Date().toLocaleDateString("en-US", currentDayOpts);
+      
+      let closeLabel = `${dayName} Close`;
+      let openLabel = `${nextDayName} Open`;
+      
+      if (dayName === currentDayName) {
+         closeLabel = `Today Close`;
+         openLabel = `Tomorrow Open`; 
+         if (dayName === "Friday") {
+            openLabel = `Monday Open`;
+         }
+      } else {
+         const tomorrow = new Date(Date.now() + 86400000).toLocaleDateString("en-US", currentDayOpts);
+         if (dayName === tomorrow) {
+            closeLabel = `Tomorrow Close`;
+            if (dayName === "Friday") openLabel = `Monday Open`;
+            else openLabel = `${nextDayName} Open`;
+         }
+      }
 
-      const displayLabel = isThisWeek
-        ? `This Weekend (${fridayStr} – ${mondayStr})`
-        : `Next Weekend (${fridayStr} – ${mondayStr})`;
+      const dateOpts: Intl.DateTimeFormatOptions = { month: "short", day: "numeric" };
+      const closeStr = targetClose.toLocaleDateString("en-US", dateOpts);
+      const openStr = targetOpen.toLocaleDateString("en-US", dateOpts);
+
+      const displayLabel = isGapActive 
+        ? `Gap Active (${closeStr} – ${openStr})`
+        : `Upcoming Gap (${closeStr} – ${openStr})`;
 
       setTimeline({
-        settlementWeek,
-        fridayClose,
-        mondayOpen,
+        settlementWeek: weekNumber,
+        targetClose,
+        targetOpen,
         daysUntilClose,
         hoursUntilClose,
-        isThisWeek,
+        isGapActive,
         displayLabel,
+        closeLabel,
+        openLabel,
         loading: false,
       });
     }

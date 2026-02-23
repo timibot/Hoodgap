@@ -302,7 +302,7 @@ export default function AdminPage() {
             </div>
             <div>
               <div className="text-xs text-muted">Utilization</div>
-              <div className="font-bold font-mono">{stats.utilization.toFixed(1)}%</div>
+              <div className="font-bold font-mono">{stats.utilization.toFixed(2)}%</div>
             </div>
             <div>
               <div className="text-xs text-muted">Active Policies</div>
