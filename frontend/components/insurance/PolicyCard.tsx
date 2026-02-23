@@ -12,6 +12,21 @@ const STATUS_LABELS = {
   expired: "Expired",
 };
 
+/** Convert canonical gapWeek (weeks since Jan 6 2021) to ISO week-of-year */
+function toCalendarWeek(canonicalWeek: number): string {
+  // Reference: Jan 6, 2021 14:30 UTC = week 0
+  const REFERENCE_EPOCH = 1609940200;
+  const WEEK_SECONDS = 604800;
+  const timestamp = REFERENCE_EPOCH + canonicalWeek * WEEK_SECONDS;
+  const date = new Date(timestamp * 1000);
+
+  // ISO week number calculation
+  const jan1 = new Date(date.getFullYear(), 0, 1);
+  const dayOfYear = Math.floor((date.getTime() - jan1.getTime()) / 86400000) + 1;
+  const weekNum = Math.ceil((dayOfYear + jan1.getDay()) / 7);
+  return `Week ${weekNum}`;
+}
+
 export default function PolicyCard({ policy }: { policy: PolicyDisplay }) {
   const [showTransfer, setShowTransfer] = useState(false);
 
@@ -29,7 +44,7 @@ export default function PolicyCard({ policy }: { policy: PolicyDisplay }) {
               )}
             </div>
             <div className="text-xs text-muted">
-              Week {policy.settlementWeek} · {formatDate(policy.purchaseDate)}
+              {toCalendarWeek(policy.settlementWeek)} · {formatDate(policy.purchaseDate)}
             </div>
           </div>
           <span className={`text-xs font-semibold ${
