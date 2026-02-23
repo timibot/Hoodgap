@@ -30,7 +30,7 @@ export default function Footer() {
                 </span>
               </div>
               <p className="text-sm text-muted mt-2">
-                Overnight gap insurance for stock holders. Built on Robinhood Chain.
+                Gap insurance for stock holders. Built on Robinhood Chain.
               </p>
               {/* How it works link */}
               <button

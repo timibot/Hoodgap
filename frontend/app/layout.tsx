@@ -10,7 +10,7 @@ import ErrorBoundary from "@/components/shared/ErrorBoundary";
 
 export const metadata: Metadata = {
   title: "HoodGap | Insurance doesn't have to be boring",
-  description: "Protect your portfolio against overnight price gaps on Robinhood Chain.",
+  description: "Protect your portfolio against price gaps when markets are closed. Built on Robinhood Chain.",
   icons: {
     icon: "/icon.png",
     apple: "/apple-icon.png",

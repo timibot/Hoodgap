@@ -61,7 +61,7 @@ export default function HowItWorksModal({ open, onClose }: HowItWorksModalProps)
 
         {/* Content */}
         <p className="text-sm text-muted leading-relaxed">
-          HoodGap protects your stock position against overnight price gaps. 
+          HoodGap protects your stock position against price gaps between market sessions. 
           Buy insurance and each night your policy covers the gap between market close 
           and next market open — if the stock gaps down beyond your threshold, you receive <span className="font-semibold text-fg">100% of your coverage</span>.
         </p>
@@ -78,7 +78,7 @@ export default function HowItWorksModal({ open, onClose }: HowItWorksModalProps)
           <div className="flex items-start gap-3">
             <span className="w-6 h-6 rounded-full bg-fg text-white text-xs font-bold flex items-center justify-center shrink-0 mt-0.5">2</span>
             <div className="text-sm">
-              <span className="font-semibold">Overnight gap occurs</span>
+              <span className="font-semibold">A gap occurs</span>
               <span className="text-muted"> — the protocol monitors the price gap from market close to next market open, 5 times per week.</span>
             </div>
           </div>

@@ -138,7 +138,7 @@ export default function RiskWizard({ onSuccess }: RiskWizardProps) {
         <label className="text-sm font-medium">
           Gap Threshold
           <InfoTooltip title="What is Gap Threshold?">
-            This is the minimum overnight price drop that triggers your insurance payout.
+            This is the minimum price drop between sessions that triggers your insurance payout.
             A -5% threshold means you get paid if a stock drops 5% or more between market close and next open.
             Lower thresholds pay out more often but cost more in premium.
           </InfoTooltip>
@@ -199,9 +199,9 @@ export default function RiskWizard({ onSuccess }: RiskWizardProps) {
       {/* Risk */}
       <div className="border-t border-b py-4 space-y-1">
         <div className="text-xs text-muted uppercase tracking-wider">
-          Overnight Risk
-          <InfoTooltip title="Overnight Risk">
-            This is your maximum potential loss from an overnight price gap — the amount you'd lose
+          Gap Risk
+          <InfoTooltip title="Gap Risk">
+            This is your maximum potential loss from a price gap between sessions — the amount you'd lose
             if the stock drops by your selected threshold between market close and next morning's open.
             This becomes your recommended coverage amount.
           </InfoTooltip>
@@ -222,7 +222,7 @@ export default function RiskWizard({ onSuccess }: RiskWizardProps) {
             Binary Payout · {totalNfts} Gap NFTs
           </div>
           <div className="text-xs text-muted leading-relaxed">
-            If any overnight gap ≥ <span className="font-semibold text-fg">{thresholdPct}%</span>, you receive{" "}
+            If any gap ≥ <span className="font-semibold text-fg">{thresholdPct}%</span>, you receive{" "}
             <span className="font-semibold text-fg">100%</span> of coverage for that gap. Each of your {totalNfts} NFTs settles independently.
           </div>
         </div>
@@ -234,7 +234,7 @@ export default function RiskWizard({ onSuccess }: RiskWizardProps) {
           Premium
           <InfoTooltip title="How Premium Works">
             The premium is what you pay to get coverage. It's calculated as a percentage of your coverage amount
-            based on the threshold tier you selected. The premium pays for one week of overnight gap protection
+            based on the threshold tier you selected. The premium pays for one week of gap protection
             (5 trading nights = 5 NFTs). If no gap event hits your threshold, the premium is not refunded.
           </InfoTooltip>
         </div>
