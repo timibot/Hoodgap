@@ -317,7 +317,7 @@ npx hardhat test test/unit/PremiumCalculation.test.js
 
 The current deployment supports Tesla (TSLA) gap insurance with a single pool and oracle feed. All core mechanics are live: premium pricing, policy issuance, settlement, staking, and guardian operations.
 
-### V2 — Multi-Asset Expansion
+### V2 — Multi-Asset Expansion + Experience-Based Pricing
 
 The architecture is designed for multi-stock support via the **Factory pattern** — each equity gets its own independent HoodGap pool:
 
@@ -338,12 +338,24 @@ Each stock pool is fully independent with its own:
 
 **No changes to `HoodGap.sol` are needed** — V2 simply deploys new instances per equity, following the same pattern used by protocols like Uniswap (one contract per pair).
 
+#### Experience-Based Dynamic Pricing
+
+V2 introduces **loss ratio–driven premium adjustment** — the contract tracks actual payout history and feeds it back into pricing:
+
+- **On-chain counters:** `totalSettled` and `totalPaidOut` increment on every settlement, giving a rolling loss ratio
+- **12-week EMA:** An exponential moving average smooths the loss ratio to avoid overreacting to a single bad week while still adapting to sustained trends
+- **Premium multiplier:** `lossMultiplier = max(1.0, EMA_lossRatio / target_lossRatio)` — premiums scale up when payouts exceed expectations, protecting staker capital in real-time
+- **Replaces manual volatility:** The current guardian-set `currentVolatility` parameter becomes data-driven, reducing trust assumptions
+
+This mechanism ensures premiums stay actuarially fair without waiting for end-of-year recalibration.
+
 ### V3 — Future Enhancements
 
 - **Cross-pool staking** — stake once, earn from multiple pools
 - **Dynamic volatility feeds** — on-chain implied volatility oracles
 - **Governance** — decentralized guardian election via token voting
 - **Options-style products** — directional gap bets (bull/bear)
+- **Yearly calibration reports** — annual on-chain snapshots of loss ratios, premium adequacy, and pool performance used to recalibrate base tier rates and model parameters
 
 ---
 
