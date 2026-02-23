@@ -48,7 +48,7 @@ export function usePolicy() {
                 subscriptionId = subId;
                 const label = Number(sub.totalWeeks) === 4 ? "Monthly" : "Season";
                 // Figure out which week within the subscription
-                const weekNum = Number(p.settlementWeek) - Number(sub.startWeek) + 1;
+                const weekNum = Number(p.gapWeek) - Number(sub.startWeek) + 1;
                 subscriptionPosition = `${label} ${weekNum}/${sub.totalWeeks}`;
               }
             }
@@ -63,7 +63,7 @@ export function usePolicy() {
             thresholdPercent: Number(p.threshold) / 100,
             premiumUsd: fromUSDC(p.premium),
             purchaseDate: new Date(Number(p.purchaseTime) * 1000),
-            settlementWeek: Number(p.settlementWeek),
+            settlementWeek: Number(p.gapWeek),
             settled: p.settled,
             paidOut: p.paidOut,
             status: policyStatus,
